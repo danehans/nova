@@ -27,6 +27,7 @@ import webob
 from nova import db
 from nova import exception
 from nova import flags
+from nova import rpc
 from nova import test
 import nova.api.openstack
 from nova.tests.api.openstack import fakes
@@ -115,13 +116,15 @@ class CreateserverextTest(test.TestCase):
                 if 'user_data' in kwargs:
                     self.user_data = kwargs['user_data']
 
-                return [{'id': '1234', 'display_name': 'fakeinstance',
+                resv_id = None
+
+                return ([{'id': '1234', 'display_name': 'fakeinstance',
                          'uuid': FAKE_UUID,
                          'user_id': 'fake',
                          'project_id': 'fake',
                          'created_at': "",
                          'updated_at': "",
-                         'progress': 0}]
+                         'progress': 0}], resv_id)
 
             def set_admin_password(self, *args, **kwargs):
                 pass
@@ -134,7 +137,7 @@ class CreateserverextTest(test.TestCase):
         compute_api = MockComputeAPI()
         self.stubs.Set(nova.compute, 'API', make_stub_method(compute_api))
         self.stubs.Set(
-            nova.api.openstack.create_instance_helper.CreateInstanceHelper,
+            nova.api.openstack.servers.Controller,
             '_get_kernel_ramdisk_from_image', make_stub_method((1, 1)))
         return compute_api
 
@@ -393,7 +396,8 @@ class CreateserverextTest(test.TestCase):
                        return_instance_add_security_group)
         body_dict = self._create_security_group_request_dict(security_groups)
         request = self._get_create_request_json(body_dict)
-        response = request.get_response(fakes.wsgi_app())
+        compute_api, response = \
+            self._run_create_instance_with_mock_compute_api(request)
         self.assertEquals(response.status_int, 202)
 
     def test_get_server_by_id_verify_security_groups_json(self):
