@@ -1272,7 +1272,7 @@ class CloudController(object):
                     if network and use_v6:
                         i['dnsNameV6'] = ipv6.to_global(
                                 fixed['network']['cidr_v6'],
-                                fixed['virtual_interface']['address'],
+                                interface['address'],
                                 instance['project_id'])
                     break
 
