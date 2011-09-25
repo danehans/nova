@@ -37,6 +37,11 @@ def return_non_existing_server_by_address(context, address, *args, **kwarg):
     raise exception.NotFound()
 
 
+def fake_get_vifs_by_instance(*args, **kwargs):
+    """Bypass rpc.call to the network service to get vifs"""
+    return []
+
+
 class MetadataTestCase(test.TestCase):
     """Test that metadata is returning proper values."""
 
@@ -72,6 +77,9 @@ class MetadataTestCase(test.TestCase):
         self.stubs.Set(self.app.cc.network_api,
                        'get_instance_uuids_by_ip_filter',
                        network_manager.get_instance_uuids_by_ip_filter)
+        self.stubs.Set(self.app.cc.network_api,
+                       'get_vifs_by_instance',
+                       fake_get_vifs_by_instance)
 
     def request(self, relative_url):
         request = webob.Request.blank(relative_url)

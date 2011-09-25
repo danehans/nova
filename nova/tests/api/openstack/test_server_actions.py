@@ -22,7 +22,7 @@ from nova.tests.api.openstack import fakes
 FLAGS = flags.FLAGS
 
 
-def fake_get_vifs_by_instance(self, context, instance_id):
+def fake_get_vifs_by_instance(*args, **kwargs):
     """Bypass rpc.call to the network service to get vifs"""
     return []
 
