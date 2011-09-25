@@ -33,13 +33,12 @@ class Controller(object):
     def __init__(self):
         self.compute_api = nova.compute.API()
 
-    def _get_instance(self, req, server_id):
+    def _get_virtual_interfaces(self, context, server_id):
         try:
-            instance = self.compute_api.get(
-                req.environ['nova.context'], server_id)
-        except nova.exception.NotFound:
-            raise exc.HTTPNotFound()
-        return instance
+            return db.api.virtual_interface_get_by_instance(context, server_id)
+        except nova.exception.InstanceNotFound:
+            msg = _("Instance does not exist")
+            raise exc.HTTPNotFound(explanation=msg)
 
     def create(self, req, server_id, body):
         raise exc.HTTPNotImplemented()
@@ -51,17 +50,19 @@ class Controller(object):
 class ControllerV10(Controller):
 
     def index(self, req, server_id):
-        instance = self._get_instance(req, server_id)
-        builder = nova.api.openstack.views.addresses.ViewBuilderV10()
-        return {'addresses': builder.build(instance)}
+        context = req.environ['nova.context']
+        interfaces = self._get_virtual_interfaces(context, server_id)
+        builder = self._get_view_builder(req)
+        return {'addresses': builder.build(interfaces)}
 
     def show(self, req, server_id, id):
-        instance = self._get_instance(req, server_id)
+        context = req.environ['nova.context']
+        interfaces = self._get_virtual_interfaces(context, server_id)
         builder = self._get_view_builder(req)
         if id == 'private':
-            view = builder.build_private_parts(instance)
+            view = builder.build_private_parts(interfaces)
         elif id == 'public':
-            view = builder.build_public_parts(instance)
+            view = builder.build_public_parts(interfaces)
         else:
             msg = _("Only private and public networks available")
             raise exc.HTTPNotFound(explanation=msg)
@@ -90,13 +91,6 @@ class ControllerV11(Controller):
             raise exc.HTTPNotFound(explanation=msg)
 
         return network
-
-    def _get_virtual_interfaces(self, context, server_id):
-        try:
-            return db.api.virtual_interface_get_by_instance(context, server_id)
-        except nova.exception.InstanceNotFound:
-            msg = _("Instance does not exist")
-            raise exc.HTTPNotFound(explanation=msg)
 
     def _get_view_builder(self, req):
         return nova.api.openstack.views.addresses.ViewBuilderV11()

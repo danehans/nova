@@ -242,14 +242,17 @@ class CloudController(object):
         search_opts = {'project_id': project_id}
         for instance in self.compute_api.get_all(context,
                 search_opts=search_opts):
-            if instance['fixed_ips']:
-                line = '%s slots=%d' % (instance['fixed_ips'][0]['address'],
+            for interface in instance.get('virtual_interfaces', []):
+                fixed_ips = _get_fixed_ips(instance)
+                if fixed_ips:
+                    line = '%s slots=%d' % (fixed_ips[0]['address'],
                                         instance['vcpus'])
-                key = str(instance['key_name'])
-                if key in result:
-                    result[key].append(line)
-                else:
-                    result[key] = [line]
+                    key = str(instance['key_name'])
+                    if key in result:
+                        result[key].append(line)
+                    else:
+                        result[key] = [line]
+                    break
         return result
 
     def _get_availability_zone_by_host(self, context, host):
@@ -1258,16 +1261,20 @@ class CloudController(object):
                 'name': state_description_from_vm_state(instance['vm_state'])}
             fixed_addr = None
             floating_addr = None
-            if instance['fixed_ips']:
-                fixed = instance['fixed_ips'][0]
-                fixed_addr = fixed['address']
-                if fixed['floating_ips']:
-                    floating_addr = fixed['floating_ips'][0]['address']
-                if fixed['network'] and use_v6:
-                    i['dnsNameV6'] = ipv6.to_global(
-                        fixed['network']['cidr_v6'],
-                        fixed['virtual_interface']['address'],
-                        instance['project_id'])
+            for interface in instance.get('virtual_interfaces', []):
+                fixed_ips = interface['fixed_ips']
+                network = interface['network']
+                if fixed_ips:
+                    fixed = fixed_ips[0]
+                    fixed_addr = fixed['address']
+                    if fixed['floating_ips']:
+                        floating_addr = fixed['floating_ips'][0]['address']
+                    if network and use_v6:
+                        i['dnsNameV6'] = ipv6.to_global(
+                                fixed['network']['cidr_v6'],
+                                interface['address'],
+                                instance['project_id'])
+                    break
 
             i['privateDnsName'] = fixed_addr
             i['privateIpAddress'] = fixed_addr

@@ -932,7 +932,7 @@ def virtual_interface_get(context, vif_id, session=None):
     vif_ref = session.query(models.VirtualInterface).\
                       filter_by(id=vif_id).\
                       options(joinedload('network')).\
-                      options(joinedload('fixed_ips')).\
+                      options(joinedload_all('fixed_ips.floating_ips')).\
                       first()
     return vif_ref
 
@@ -947,7 +947,7 @@ def virtual_interface_get_by_address(context, address):
     vif_ref = session.query(models.VirtualInterface).\
                       filter_by(address=address).\
                       options(joinedload('network')).\
-                      options(joinedload('fixed_ips')).\
+                      options(joinedload_all('fixed_ips.floating_ips')).\
                       first()
     return vif_ref
 
@@ -962,7 +962,7 @@ def virtual_interface_get_by_uuid(context, vif_uuid):
     vif_ref = session.query(models.VirtualInterface).\
                       filter_by(uuid=vif_uuid).\
                       options(joinedload('network')).\
-                      options(joinedload('fixed_ips')).\
+                      options(joinedload_all('fixed_ips.floating_ips')).\
                       first()
     return vif_ref
 
@@ -977,7 +977,7 @@ def virtual_interface_get_by_fixed_ip(context, fixed_ip_id):
     vif_ref = session.query(models.VirtualInterface).\
                       filter_by(fixed_ip_id=fixed_ip_id).\
                       options(joinedload('network')).\
-                      options(joinedload('fixed_ips')).\
+                      options(joinedload_all('fixed_ips.floating_ips')).\
                       first()
     return vif_ref
 
@@ -993,7 +993,7 @@ def virtual_interface_get_by_instance(context, instance_id):
     vif_refs = session.query(models.VirtualInterface).\
                        filter_by(instance_id=instance_id).\
                        options(joinedload('network')).\
-                       options(joinedload('fixed_ips')).\
+                       options(joinedload_all('fixed_ips.floating_ips')).\
                        all()
     return vif_refs
 
@@ -1007,7 +1007,7 @@ def virtual_interface_get_by_instance_and_network(context, instance_id,
                       filter_by(instance_id=instance_id).\
                       filter_by(network_id=network_id).\
                       options(joinedload('network')).\
-                      options(joinedload('fixed_ips')).\
+                      options(joinedload_all('fixed_ips.floating_ips')).\
                       first()
     return vif_ref
 
@@ -1022,7 +1022,7 @@ def virtual_interface_get_by_network(context, network_id):
     vif_refs = session.query(models.VirtualInterface).\
                        filter_by(network_id=network_id).\
                        options(joinedload('network')).\
-                       options(joinedload('fixed_ips')).\
+                       options(joinedload_all('fixed_ips.floating_ips')).\
                        all()
     return vif_refs
 
@@ -1057,7 +1057,7 @@ def virtual_interface_get_all(context):
     session = get_session()
     vif_refs = session.query(models.VirtualInterface).\
                        options(joinedload('network')).\
-                       options(joinedload('fixed_ips')).\
+                       options(joinedload_all('fixed_ips.floating_ips')).\
                        all()
     return vif_refs
 
@@ -1176,8 +1176,6 @@ def _build_instance_get(context, session=None):
         session = get_session()
 
     partial = session.query(models.Instance).\
-                     options(joinedload_all('fixed_ips.floating_ips')).\
-                     options(joinedload_all('fixed_ips.network')).\
                      options(joinedload_all('security_groups.rules')).\
                      options(joinedload('volumes')).\
                      options(joinedload('metadata')).\
@@ -1195,9 +1193,7 @@ def _build_instance_get(context, session=None):
 def instance_get_all(context):
     session = get_session()
     return session.query(models.Instance).\
-                   options(joinedload_all('fixed_ips.floating_ips')).\
                    options(joinedload('security_groups')).\
-                   options(joinedload_all('fixed_ips.network')).\
                    options(joinedload('metadata')).\
                    options(joinedload('instance_type')).\
                    filter_by(deleted=can_read_deleted(context)).\

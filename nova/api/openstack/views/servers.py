@@ -130,7 +130,8 @@ class ViewBuilderV10(ViewBuilder):
             response['flavorId'] = inst['instance_type']['flavorid']
 
     def _build_addresses(self, response, inst):
-        response['addresses'] = self.addresses_builder.build(inst)
+        interfaces = inst.get('virtual_interfaces', [])
+        response['addresses'] = self.addresses_builder.build(interfaces)
 
 
 class ViewBuilderV11(ViewBuilder):

@@ -33,16 +33,21 @@ class ViewBuilder(object):
 
 class ViewBuilderV10(ViewBuilder):
 
-    def build(self, inst):
-        private_ips = self.build_private_parts(inst)
-        public_ips = self.build_public_parts(inst)
+    def build(self, interfaces):
+        private_ips = []
+        public_ips = []
+        for interface in interfaces:
+            public_ips += utils.get_from_path(interface,
+                    'fixed_ips/floating_ips/address')
+            private_ips += utils.get_from_path(interface,
+                    'fixed_ips/address')
         return dict(public=public_ips, private=private_ips)
 
-    def build_public_parts(self, inst):
-        return utils.get_from_path(inst, 'fixed_ips/floating_ips/address')
+    def build_public_parts(self, interfaces):
+        return self.build(interfaces)['public']
 
-    def build_private_parts(self, inst):
-        return utils.get_from_path(inst, 'fixed_ips/address')
+    def build_private_parts(self, interfaces):
+        return self.build(interfaces)['private']
 
 
 class ViewBuilderV11(ViewBuilder):

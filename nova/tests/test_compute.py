@@ -38,6 +38,7 @@ from nova.compute import power_state
 from nova.compute import vm_states
 from nova.db.sqlalchemy import models
 from nova.image import fake as fake_image
+from nova.network import API as network_api
 from nova.notifier import test_notifier
 from nova.tests import fake_network
 
@@ -60,6 +61,11 @@ def nop_report_driver_status(self):
     pass
 
 
+def fake_get_vifs_by_instance(self, context, instance_id):
+    """Bypass the rpc.call to network service"""
+    return self.db.virtual_interface_get_by_instance(context, instance_id)
+
+
 class ComputeTestCase(test.TestCase):
     """Test case for compute"""
     def setUp(self):
@@ -69,7 +75,6 @@ class ComputeTestCase(test.TestCase):
                    notification_driver='nova.notifier.test_notifier',
                    network_manager='nova.network.manager.FlatManager')
         self.compute = utils.import_object(FLAGS.compute_manager)
-        self.compute_api = compute.API()
         self.user_id = 'fake'
         self.project_id = 'fake'
         self.context = context.RequestContext(self.user_id, self.project_id)
@@ -80,6 +85,11 @@ class ComputeTestCase(test.TestCase):
                     'properties': {'kernel_id': 1, 'ramdisk_id': 1}}
 
         self.stubs.Set(fake_image._FakeImageService, 'show', fake_show)
+        self.stubs.Set(network_api,
+                "get_vifs_by_instance",
+                fake_get_vifs_by_instance)
+
+        self.compute_api = compute.API()
 
     def _create_instance(self, params=None):
         """Create a test instance"""
@@ -928,6 +938,7 @@ class ComputeTestCase(test.TestCase):
         db.instance_destroy(c, instance_id)
         db.volume_destroy(c, v_ref['id'])
         db.floating_ip_destroy(c, flo_addr)
+        db.fixed_ip_update(c, fix_addr, {'deleted': True})
 
     def test_run_kill_vm(self):
         """Detect when a vm is terminated behind the scenes"""
@@ -1397,6 +1408,81 @@ class ComputeTestCase(test.TestCase):
         self.assertEqual(self.compute_api._volume_size(inst_type,
                                                        'swap'),
                          swap_size)
+
+    def test_virtual_interfaces_returned_with_get(self):
+        """Check instance has 'virtual_interfaces' set correctly with
+        get().
+        """
+        dest = 'desthost'
+        flo_addr = '1.2.1.2'
+
+        # Preparing datas
+        c = context.get_admin_context()
+        instance_id = self._create_instance()
+        i_ref = db.instance_get(c, instance_id)
+        self.assertEqual(i_ref['id'], instance_id)
+        vif = db.virtual_interface_create(c, {'instance_id': instance_id})
+        db.instance_update(c, instance_id,
+                {'vm_state': vm_states.MIGRATING,
+                'power_state': power_state.PAUSED})
+        fix_addr = db.fixed_ip_create(c,
+                {'address': '1.1.1.1',
+                 'instance_id': instance_id,
+                 'virtual_interface_id': vif['id']})
+        fix_ref = db.fixed_ip_get_by_address(c, fix_addr)
+        flo_ref = db.floating_ip_create(c, {'address': flo_addr,
+                                        'fixed_ip_id': fix_ref['id']})
+
+        instance = self.compute_api.get(c, instance_id)
+
+        self.assertEqual(len(instance['virtual_interfaces']), 1)
+        fixed_ips = instance['virtual_interfaces'][0]['fixed_ips']
+        self.assertEqual(len(fixed_ips), 1)
+        self.assertEqual(fixed_ips[0]['address'], '1.1.1.1')
+        flo_ips = fixed_ips[0]['floating_ips']
+        self.assertEqual(len(flo_ips), 1)
+        self.assertEqual(flo_ips[0]['address'], '1.2.1.2')
+        db.instance_destroy(c, instance_id)
+        db.fixed_ip_update(c, fix_addr, {'deleted': True})
+        db.floating_ip_destroy(c, flo_addr)
+
+    def test_virtual_interfaces_returned_with_get_all(self):
+        """Check instances have 'virtual_interfaces' set correctly with
+        get_all().
+        """
+        dest = 'desthost'
+        flo_addr = '1.2.1.2'
+
+        # Preparing datas
+        c = context.get_admin_context()
+        instance_id = self._create_instance()
+        i_ref = db.instance_get(c, instance_id)
+        self.assertEqual(i_ref['id'], instance_id)
+        vif = db.virtual_interface_create(c, {'instance_id': instance_id})
+        db.instance_update(c, instance_id,
+                {'vm_state': vm_states.MIGRATING,
+                'power_state': power_state.PAUSED})
+        fix_addr = db.fixed_ip_create(c,
+                {'address': '1.1.1.1',
+                 'instance_id': instance_id,
+                 'virtual_interface_id': vif['id']})
+        fix_ref = db.fixed_ip_get_by_address(c, fix_addr)
+        flo_ref = db.floating_ip_create(c, {'address': flo_addr,
+                                        'fixed_ip_id': fix_ref['id']})
+
+        instances = self.compute_api.get_all(c)
+        self.assertEqual(len(instances), 1)
+        instance = instances[0]
+        self.assertEqual(len(instance['virtual_interfaces']), 1)
+        fixed_ips = instance['virtual_interfaces'][0]['fixed_ips']
+        self.assertEqual(len(fixed_ips), 1)
+        self.assertEqual(fixed_ips[0]['address'], '1.1.1.1')
+        flo_ips = fixed_ips[0]['floating_ips']
+        self.assertEqual(len(flo_ips), 1)
+        self.assertEqual(flo_ips[0]['address'], '1.2.1.2')
+        db.instance_destroy(c, instance_id)
+        db.fixed_ip_update(c, fix_addr, {'deleted': True})
+        db.floating_ip_destroy(c, flo_addr)
 
 
 class ComputeTestMinRamMinDisk(test.TestCase):

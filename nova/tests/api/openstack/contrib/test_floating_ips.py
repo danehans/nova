@@ -87,10 +87,13 @@ def network_get_instance_nw_info(self, context, instance):
 
 
 def fake_instance_get(context, instance_id):
-        return {
-        "id": 1,
-        "user_id": 'fakeuser',
-        "project_id": '123'}
+    return {"id": 1,
+            "user_id": 'fakeuser',
+            "project_id": '123'}
+
+
+def fake_compute_get(self, context, instance_id):
+    return fake_instance_get(context, instance_id)
 
 
 class FloatingIpTest(test.TestCase):
@@ -122,6 +125,8 @@ class FloatingIpTest(test.TestCase):
                        network_get_instance_nw_info)
         self.stubs.Set(db.api, 'instance_get',
                        fake_instance_get)
+        self.stubs.Set(compute.api.API, 'get',
+                       fake_compute_get)
 
         self.context = context.get_admin_context()
         self._create_floating_ip()
