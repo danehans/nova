@@ -13,12 +13,18 @@ from nova.api.openstack import create_instance_helper
 from nova.compute import vm_states
 from nova.compute import instance_types
 import nova.db.api
+from nova.network import api as network_api
 from nova import test
 from nova.tests.api.openstack import common
 from nova.tests.api.openstack import fakes
 
 
 FLAGS = flags.FLAGS
+
+
+def fake_get_vifs_by_instance(self, context, instance_id):
+    """Bypass rpc.call to the network service to get vifs"""
+    return []
 
 
 def return_server_by_id(context, id):
@@ -118,15 +124,12 @@ class ServerActionsTest(test.TestCase):
         self.maxDiff = None
         super(ServerActionsTest, self).setUp()
         self.flags(verbose=True)
-        self.stubs = stubout.StubOutForTesting()
         fakes.stub_out_auth(self.stubs)
         self.stubs.Set(nova.db.api, 'instance_get', return_server_by_id)
         self.stubs.Set(nova.db.api, 'instance_update', instance_update)
-
+        self.stubs.Set(network_api.API,
+                'get_vifs_by_instance', fake_get_vifs_by_instance)
         self.webreq = common.webob_factory('/v1.0/servers')
-
-    def tearDown(self):
-        self.stubs.UnsetAll()
 
     def test_server_change_password(self):
         body = {'changePassword': {'adminPass': '1234pass'}}
@@ -303,6 +306,8 @@ class ServerActionsTest(test.TestCase):
         """This is basically the same as resize, only we provide the `migrate`
         attribute in the body's dict.
         """
+        self.flags(allow_admin_api=True)
+
         req = self.webreq('/1/migrate', 'POST')
 
         self.resize_called = False
@@ -315,6 +320,23 @@ class ServerActionsTest(test.TestCase):
         res = req.get_response(fakes.wsgi_app())
         self.assertEqual(res.status_int, 202)
         self.assertEqual(self.resize_called, True)
+
+    def test_migrate_server_admin_api_off(self):
+        """Test migrate 404s when admin API disabled"""
+        self.flags(allow_admin_api=False)
+
+        req = self.webreq('/1/migrate', 'POST')
+
+        self.resize_called = False
+
+        def resize_mock(*args):
+            self.resize_called = True
+
+        self.stubs.Set(nova.compute.api.API, 'resize', resize_mock)
+
+        res = req.get_response(fakes.wsgi_app())
+        self.assertEqual(self.resize_called, False)
+        self.assertEqual(res.status_int, 404)
 
     def test_create_backup(self):
         """The happy path for creating backups"""
@@ -337,7 +359,7 @@ class ServerActionsTest(test.TestCase):
         self.assertTrue(response.headers['Location'])
 
     def test_create_backup_admin_api_off(self):
-        """The happy path for creating backups"""
+        """The happy path for creating backups admin_api off"""
         self.flags(allow_admin_api=False)
 
         body = {
@@ -468,10 +490,11 @@ class ServerActionsTestV11(test.TestCase):
     def setUp(self):
         self.maxDiff = None
         super(ServerActionsTestV11, self).setUp()
-        self.stubs = stubout.StubOutForTesting()
         fakes.stub_out_auth(self.stubs)
         self.stubs.Set(nova.db.api, 'instance_get', return_server_by_id)
         self.stubs.Set(nova.db.api, 'instance_update', instance_update)
+        self.stubs.Set(network_api.API,
+                'get_vifs_by_instance', fake_get_vifs_by_instance)
 
         fakes.stub_out_glance(self.stubs)
         fakes.stub_out_compute_api_snapshot(self.stubs)
@@ -482,9 +505,6 @@ class ServerActionsTestV11(test.TestCase):
         self.sent_to_glance = {}
         fakes.stub_out_glance_add_image(self.stubs, self.sent_to_glance)
         self.flags(allow_instance_snapshots=True)
-
-    def tearDown(self):
-        self.stubs.UnsetAll()
 
     def test_server_bad_body(self):
         body = {}
