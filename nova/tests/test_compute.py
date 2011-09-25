@@ -90,7 +90,7 @@ class ComputeTestCase(test.TestCase):
                 fake_get_vifs_by_instance)
 
         self.compute_api = compute.API()
-         
+
     def _create_instance(self, params=None):
         """Create a test instance"""
         if not params:
@@ -1445,7 +1445,6 @@ class ComputeTestCase(test.TestCase):
         db.instance_destroy(c, instance_id)
         db.fixed_ip_update(c, fix_addr, {'deleted': True})
         db.floating_ip_destroy(c, flo_addr)
-
 
     def test_virtual_interfaces_returned_with_get_all(self):
         """Check instances have 'virtual_interfaces' set correctly with

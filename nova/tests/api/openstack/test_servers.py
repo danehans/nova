@@ -224,7 +224,7 @@ def stub_instance(id, user_id='fake', project_id='fake', host=None,
         "access_ip_v6": access_ipv6,
         "uuid": uuid,
         # 'virtual_interfaces' will be returned by a network_api stub
-        "virtual_interfaces": None, 
+        "virtual_interfaces": None,
         "progress": progress}
 
     return instance
