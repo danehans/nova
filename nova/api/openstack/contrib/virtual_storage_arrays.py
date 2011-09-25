@@ -66,11 +66,13 @@ def _vsa_view(context, vsa, details=False, instances=None):
     for instance in instances:
         fixed_addr = None
         floating_addr = None
-        if instance['fixed_ips']:
-            fixed = instance['fixed_ips'][0]
-            fixed_addr = fixed['address']
-            if fixed['floating_ips']:
-                floating_addr = fixed['floating_ips'][0]['address']
+        for interface in instance.get('virtual_interfaces', []):
+            fixed_ips = interface['fixed_ips']
+            if fixed_ips:
+                fixed = fixed_ips[0]
+                fixed_addr = fixed['address']
+                if fixed['floating_ips']:
+                    floating_addr = fixed['floating_ips'][0]['address']
 
         if floating_addr:
             d['ipAddress'] = floating_addr

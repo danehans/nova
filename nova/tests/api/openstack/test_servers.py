@@ -32,6 +32,7 @@ from nova import exception
 from nova import flags
 from nova import test
 from nova import utils
+from nova.compute import manager as compute_manager
 import nova.api.openstack
 from nova.api.openstack import create_instance_helper
 from nova.api.openstack import servers
@@ -74,6 +75,11 @@ def return_server_by_uuid(context, uuid):
     return stub_instance(id, uuid=uuid)
 
 
+def fake_get_vifs_by_instance(self, context, instance_id):
+    """db.virtual* is usually stubbed out, itself to one of the below"""
+    return self.db.virtual_interface_get_by_instance(context, instance_id)
+
+
 def return_virtual_interface_by_instance(interfaces):
     def _return_virtual_interface_by_instance(context, instance_id):
         return interfaces
@@ -89,13 +95,6 @@ def return_virtual_interface_instance_nonexistant(interfaces):
 def return_server_with_attributes(**kwargs):
     def _return_server(context, id):
         return stub_instance(id, **kwargs)
-    return _return_server
-
-
-def return_server_with_addresses(private, public):
-    def _return_server(context, id):
-        return stub_instance(id, private_address=private,
-                             public_addresses=public)
     return _return_server
 
 
@@ -158,22 +157,23 @@ def instance_addresses(context, instance_id):
     return None
 
 
-def stub_instance(id, user_id='fake', project_id='fake', private_address=None,
-                  public_addresses=None, host=None,
+def make_interfaces(private_address, public_addresses):
+    fixed_ips = {
+            "address": private_address,
+            "floating_ips": [{"address":ip} for ip in public_addresses]}
+    network = {'label': 'private'}
+    return [dict(fixed_ips=fixed_ips, network=network)]
+
+
+def stub_instance(id, user_id='fake', project_id='fake', host=None,
                   vm_state=None, task_state=None,
                   reservation_id="", uuid=FAKE_UUID, image_ref="10",
-                  flavor_id="1", interfaces=None, name=None, key_name='',
+                  flavor_id="1", name=None, key_name='',
                   access_ipv4=None, access_ipv6=None, progress=0):
     metadata = []
     metadata.append(InstanceMetadata(key='seq', value=id))
 
-    if interfaces is None:
-        interfaces = []
-
     inst_type = instance_types.get_instance_type_by_flavor_id(int(flavor_id))
-
-    if public_addresses is None:
-        public_addresses = list()
 
     if host is not None:
         host = str(host)
@@ -223,12 +223,9 @@ def stub_instance(id, user_id='fake', project_id='fake', private_address=None,
         "access_ip_v4": access_ipv4,
         "access_ip_v6": access_ipv6,
         "uuid": uuid,
-        "virtual_interfaces": interfaces,
+        # 'virtual_interfaces' will be returned by a network_api stub
+        "virtual_interfaces": None, 
         "progress": progress}
-
-    instance["fixed_ips"] = {
-        "address": private_address,
-        "floating_ips": [{"address":ip} for ip in public_addresses]}
 
     return instance
 
@@ -281,6 +278,8 @@ class ServersTest(test.TestCase):
         self.stubs.Set(nova.compute.API, 'resume', fake_compute_api)
         self.stubs.Set(nova.compute.API, "get_diagnostics", fake_compute_api)
         self.stubs.Set(nova.compute.API, "get_actions", fake_compute_api)
+        self.stubs.Set(nova.network.API, "get_vifs_by_instance",
+                fake_get_vifs_by_instance)
 
         self.webreq = common.webob_factory('/v1.0/servers')
         self.config_drive = None
@@ -344,8 +343,12 @@ class ServersTest(test.TestCase):
                 ],
             },
         ]
-        new_return_server = return_server_with_attributes(
-            interfaces=interfaces)
+
+        _return_vifs = return_virtual_interface_by_instance(interfaces)
+        self.stubs.Set(nova.db.api,
+                       'virtual_interface_get_by_instance',
+                       _return_vifs)
+        new_return_server = return_server_by_id
         self.stubs.Set(nova.db.api, 'instance_get', new_return_server)
 
         req = webob.Request.blank('/v1.1/fake/servers/1')
@@ -437,8 +440,12 @@ class ServersTest(test.TestCase):
                 ],
             },
         ]
-        new_return_server = return_server_with_attributes(
-            interfaces=interfaces)
+
+        _return_vifs = return_virtual_interface_by_instance(interfaces)
+        self.stubs.Set(nova.db.api,
+                       'virtual_interface_get_by_instance',
+                       _return_vifs)
+        new_return_server = return_server_by_id
         self.stubs.Set(nova.db.api, 'instance_get', new_return_server)
 
         req = webob.Request.blank('/v1.1/fake/servers/1')
@@ -549,8 +556,13 @@ class ServersTest(test.TestCase):
                 ],
             },
         ]
+
+        _return_vifs = return_virtual_interface_by_instance(interfaces)
+        self.stubs.Set(nova.db.api,
+                       'virtual_interface_get_by_instance',
+                       _return_vifs)
         new_return_server = return_server_with_attributes(
-            interfaces=interfaces, vm_state=vm_states.ACTIVE,
+            vm_state=vm_states.ACTIVE,
             progress=100)
         self.stubs.Set(nova.db.api, 'instance_get', new_return_server)
 
@@ -646,8 +658,13 @@ class ServersTest(test.TestCase):
                 ],
             },
         ]
+
+        _return_vifs = return_virtual_interface_by_instance(interfaces)
+        self.stubs.Set(nova.db.api,
+                       'virtual_interface_get_by_instance',
+                       _return_vifs)
         new_return_server = return_server_with_attributes(
-            interfaces=interfaces, vm_state=vm_states.ACTIVE,
+            vm_state=vm_states.ACTIVE,
             image_ref=image_ref, flavor_id=flavor_id, progress=100)
         self.stubs.Set(nova.db.api, 'instance_get', new_return_server)
 
@@ -723,7 +740,12 @@ class ServersTest(test.TestCase):
     def test_get_server_by_id_with_addresses_xml(self):
         private = "192.168.0.3"
         public = ["1.2.3.4"]
-        new_return_server = return_server_with_addresses(private, public)
+        interfaces = make_interfaces(private, public)
+        _return_vifs = return_virtual_interface_by_instance(interfaces)
+        self.stubs.Set(nova.db.api,
+                       'virtual_interface_get_by_instance',
+                       _return_vifs)
+        new_return_server = return_server_by_id
         self.stubs.Set(nova.db.api, 'instance_get', new_return_server)
         req = webob.Request.blank('/v1.0/servers/1')
         req.headers['Accept'] = 'application/xml'
@@ -743,7 +765,12 @@ class ServersTest(test.TestCase):
     def test_get_server_by_id_with_addresses(self):
         private = "192.168.0.3"
         public = ["1.2.3.4"]
-        new_return_server = return_server_with_addresses(private, public)
+        interfaces = make_interfaces(private, public)
+        _return_vifs = return_virtual_interface_by_instance(interfaces)
+        self.stubs.Set(nova.db.api,
+                       'virtual_interface_get_by_instance',
+                       _return_vifs)
+        new_return_server = return_server_by_id
         self.stubs.Set(nova.db.api, 'instance_get', new_return_server)
         req = webob.Request.blank('/v1.0/servers/1')
         res = req.get_response(fakes.wsgi_app())
@@ -759,7 +786,12 @@ class ServersTest(test.TestCase):
     def test_get_server_addresses_v1_0(self):
         private = '192.168.0.3'
         public = ['1.2.3.4']
-        new_return_server = return_server_with_addresses(private, public)
+        interfaces = make_interfaces(private, public)
+        _return_vifs = return_virtual_interface_by_instance(interfaces)
+        self.stubs.Set(nova.db.api,
+                       'virtual_interface_get_by_instance',
+                       _return_vifs)
+        new_return_server = return_server_by_id
         self.stubs.Set(nova.db.api, 'instance_get', new_return_server)
         req = webob.Request.blank('/v1.0/servers/1/ips')
         res = req.get_response(fakes.wsgi_app())
@@ -770,8 +802,12 @@ class ServersTest(test.TestCase):
     def test_get_server_addresses_xml_v1_0(self):
         private_expected = "192.168.0.3"
         public_expected = ["1.2.3.4"]
-        new_return_server = return_server_with_addresses(private_expected,
-                                                         public_expected)
+        interfaces = make_interfaces(private_expected, public_expected)
+        _return_vifs = return_virtual_interface_by_instance(interfaces)
+        self.stubs.Set(nova.db.api,
+                       'virtual_interface_get_by_instance',
+                       _return_vifs)
+        new_return_server = return_server_by_id
         self.stubs.Set(nova.db.api, 'instance_get', new_return_server)
         req = webob.Request.blank('/v1.0/servers/1/ips')
         req.headers['Accept'] = 'application/xml'
@@ -789,7 +825,12 @@ class ServersTest(test.TestCase):
     def test_get_server_addresses_public_v1_0(self):
         private = "192.168.0.3"
         public = ["1.2.3.4"]
-        new_return_server = return_server_with_addresses(private, public)
+        interfaces = make_interfaces(private, public)
+        _return_vifs = return_virtual_interface_by_instance(interfaces)
+        self.stubs.Set(nova.db.api,
+                       'virtual_interface_get_by_instance',
+                       _return_vifs)
+        new_return_server = return_server_by_id
         self.stubs.Set(nova.db.api, 'instance_get', new_return_server)
         req = webob.Request.blank('/v1.0/servers/1/ips/public')
         res = req.get_response(fakes.wsgi_app())
@@ -799,7 +840,12 @@ class ServersTest(test.TestCase):
     def test_get_server_addresses_private_v1_0(self):
         private = "192.168.0.3"
         public = ["1.2.3.4"]
-        new_return_server = return_server_with_addresses(private, public)
+        interfaces = make_interfaces(private, public)
+        _return_vifs = return_virtual_interface_by_instance(interfaces)
+        self.stubs.Set(nova.db.api,
+                       'virtual_interface_get_by_instance',
+                       _return_vifs)
+        new_return_server = return_server_by_id
         self.stubs.Set(nova.db.api, 'instance_get', new_return_server)
         req = webob.Request.blank('/v1.0/servers/1/ips/private')
         res = req.get_response(fakes.wsgi_app())
@@ -809,7 +855,12 @@ class ServersTest(test.TestCase):
     def test_get_server_addresses_public_xml_v1_0(self):
         private = "192.168.0.3"
         public = ["1.2.3.4"]
-        new_return_server = return_server_with_addresses(private, public)
+        interfaces = make_interfaces(private, public)
+        _return_vifs = return_virtual_interface_by_instance(interfaces)
+        self.stubs.Set(nova.db.api,
+                       'virtual_interface_get_by_instance',
+                       _return_vifs)
+        new_return_server = return_server_by_id
         self.stubs.Set(nova.db.api, 'instance_get', new_return_server)
         req = webob.Request.blank('/v1.0/servers/1/ips/public')
         req.headers['Accept'] = 'application/xml'
@@ -823,7 +874,12 @@ class ServersTest(test.TestCase):
     def test_get_server_addresses_private_xml_v1_0(self):
         private = "192.168.0.3"
         public = ["1.2.3.4"]
-        new_return_server = return_server_with_addresses(private, public)
+        interfaces = make_interfaces(private, public)
+        _return_vifs = return_virtual_interface_by_instance(interfaces)
+        self.stubs.Set(nova.db.api,
+                       'virtual_interface_get_by_instance',
+                       _return_vifs)
+        new_return_server = return_server_by_id
         self.stubs.Set(nova.db.api, 'instance_get', new_return_server)
         req = webob.Request.blank('/v1.0/servers/1/ips/private')
         req.headers['Accept'] = 'application/xml'
@@ -845,7 +901,12 @@ class ServersTest(test.TestCase):
                 ],
             },
         ]
-        new_return_server = return_server_with_attributes(interfaces=ifaces)
+
+        _return_vifs = return_virtual_interface_by_instance(ifaces)
+        self.stubs.Set(nova.db.api,
+                       'virtual_interface_get_by_instance',
+                       _return_vifs)
+        new_return_server = return_server_by_id
         self.stubs.Set(nova.db.api, 'instance_get', new_return_server)
 
         req = webob.Request.blank('/v1.1/fake/servers/1')
@@ -874,8 +935,12 @@ class ServersTest(test.TestCase):
                 'fixed_ipv6': '2001:4860::12',
             },
         ]
-        new_return_server = return_server_with_attributes(
-            interfaces=interfaces)
+
+        _return_vifs = return_virtual_interface_by_instance(interfaces)
+        self.stubs.Set(nova.db.api,
+                       'virtual_interface_get_by_instance',
+                       _return_vifs)
+        new_return_server = return_server_by_id
         self.stubs.Set(nova.db.api, 'instance_get', new_return_server)
 
         req = webob.Request.blank('/v1.1/fake/servers/1')
@@ -918,8 +983,12 @@ class ServersTest(test.TestCase):
                 'fixed_ipv6': '2001:4860::12',
             },
         ]
-        new_return_server = return_server_with_attributes(
-            interfaces=interfaces)
+
+        _return_vifs = return_virtual_interface_by_instance(interfaces)
+        self.stubs.Set(nova.db.api,
+                       'virtual_interface_get_by_instance',
+                       _return_vifs)
+        new_return_server = return_server_by_id
         self.stubs.Set(nova.db.api, 'instance_get', new_return_server)
 
         req = webob.Request.blank('/v1.1/fake/servers/1')
@@ -2565,7 +2634,7 @@ class ServersTest(test.TestCase):
         '''
 
         def return_servers_with_host(context, *args, **kwargs):
-            return [stub_instance(i, 'fake', 'fake', None, None, i % 2)
+            return [stub_instance(i, 'fake', 'fake', host=i % 2)
                     for i in xrange(5)]
 
         self.stubs.Set(nova.db.api, 'instance_get_all_by_filters',
@@ -2744,6 +2813,11 @@ class ServersTest(test.TestCase):
 
 
 class TestServerStatus(test.TestCase):
+
+    def setUp(self):
+        super(TestServerStatus, self).setUp()
+        self.stubs.Set(nova.network.API, "get_vifs_by_instance",
+                fake_get_vifs_by_instance)
 
     def _get_with_state(self, vm_state, task_state=None):
         new_server = return_server_with_state(vm_state, task_state)
