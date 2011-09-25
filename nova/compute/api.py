@@ -927,6 +927,9 @@ class API(base.Base):
             instance = self.db.instance_get_by_uuid(context, uuid)
         else:
             instance = self.db.instance_get(context, instance_id)
+        interfaces = self.network_api.get_vifs_by_instance(context,
+                instance['id'])
+        instance['virtual_interfaces'] = interfaces
         return dict(instance.iteritems())
 
     @scheduler_api.reroute_compute("get")
@@ -996,6 +999,10 @@ class API(base.Base):
             recurse_zones = True
 
         instances = self._get_instances_by_filters(context, filters)
+        for instance in instances:
+            interfaces = self.network_api.get_vifs_by_instance(context,
+                    instance['id'])
+            instance['virtual_interfaces'] = interfaces
 
         if not recurse_zones:
             return instances
