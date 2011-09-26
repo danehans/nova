@@ -489,7 +489,7 @@ class NetworkManager(manager.SchedulerDependentManager):
         networks = self._get_networks_for_instance(admin_context,
                                         instance_id, project_id,
                                         requested_networks=requested_networks)
-        
+
         if FLAGS.network_manager == 'nova.network.manager.FlatManager':
             # turn networks in a dict of lists of the format:
             # networks = {'label1': [network1, network2, network3],
