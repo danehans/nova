@@ -489,6 +489,42 @@ class NetworkManager(manager.SchedulerDependentManager):
         networks = self._get_networks_for_instance(admin_context,
                                         instance_id, project_id,
                                         requested_networks=requested_networks)
+        
+        if FLAGS.network_manager == 'nova.network.manager.FlatManager':
+            # turn networks in a dict of lists of the format:
+            # networks = {'label1': [network1, network2, network3],
+            #             'label2': [network4, network5, network6]}
+            # this way we can do 1 vif per network label group allowing us to
+            # allocate additional network blocks without getting more vifs
+            # TODO(tr3buchet): remove this crap once koelker ip branch is done
+
+            def network_list_to_label_groups(nw_list):
+                nw_dict = {}
+                for nw in nw_list:
+                    label = nw['label']
+                    if nw_dict.get(label):
+                        nw_dict[label].append(nw)
+                    else:
+                        nw_dict[label] = [nw]
+                return nw_dict
+
+            networks = network_list_to_label_groups(networks)
+            # note _allocate_mac_addresses no longer sets the vif['network_id']
+            self._allocate_mac_addresses_hack(context, instance_id, networks)
+
+            # _allocate_fixed_ips will now attempt to allocate an ip from each
+            # label group, stopping once successful, and also updating
+            # the vif network_id
+            self._allocate_fixed_ips_hack(admin_context, instance_id, host,
+                                     networks, vpn=vpn)
+        else:
+            LOG.warn(networks)
+            self._allocate_mac_addresses(context, instance_id, networks)
+
+            self._allocate_fixed_ips(admin_context, instance_id, host,
+                                     networks, vpn=vpn,
+                                     requested_networks=requested_networks)
+
         self._allocate_mac_addresses(context, instance_id, networks)
         self._allocate_fixed_ips(admin_context, instance_id,
                                  host, networks, vpn=vpn,
@@ -624,6 +660,23 @@ class NetworkManager(manager.SchedulerDependentManager):
                                                              instance_id)
             raise exception.VirtualInterfaceMacAddressException()
 
+    def _allocate_mac_addresses_hack(self, context, instance_id, networks):
+        """Generates mac addresses and creates vif rows in db for them."""
+        for label, nw_list in networks.iteritems():
+            vif = {'address': self.generate_mac_address(),
+                   'instance_id': instance_id}
+            # try FLAG times to create a vif record with a unique mac_address
+            for i in range(FLAGS.create_unique_mac_address_attempts):
+                try:
+                    self.db.virtual_interface_create(context, vif)
+                    break
+                except exception.VirtualInterfaceCreateException:
+                    vif['address'] = self.generate_mac_address()
+            else:
+                self.db.virtual_interface_delete_by_instance(context,
+                                                             instance_id)
+                raise exception.VirtualInterfaceMacAddressException()
+
     def generate_mac_address(self):
         """Generate an Ethernet MAC address."""
         mac = [0x02, 0x16, 0x3e,
@@ -664,10 +717,22 @@ class NetworkManager(manager.SchedulerDependentManager):
                 address = self.db.fixed_ip_associate_pool(context.elevated(),
                                                           network['id'],
                                                           instance_id)
-            self._do_trigger_security_group_members_refresh_for_instance(
+            if FLAGS.network_manager == 'nova.network.manager.FlatManager':
+                # get the first of the list of vifs for instance which don't
+                # have network set and set it to the network we've allocated
+                # an address for
+                get_vif = self.db.virtual_interface_get_by_instance_and_network
+                vif = get_vif(context, instance_id, None)
+
+                # update the vif
+                values = {'network_id': network['id']}
+                self.db.virtual_interface_update(context, vif['id'], values)
+            else:
+                self._do_trigger_security_group_members_refresh_for_instance(
                                                                    instance_id)
-            get_vif = self.db.virtual_interface_get_by_instance_and_network
-            vif = get_vif(context, instance_id, network['id'])
+                get_vif = self.db.virtual_interface_get_by_instance_and_network
+                vif = get_vif(context, instance_id, network['id'])
+
             values = {'allocated': True,
                       'virtual_interface_id': vif['id']}
             self.db.fixed_ip_update(context, address, values)
@@ -976,6 +1041,19 @@ class FlatManager(NetworkManager):
 
             self.allocate_fixed_ip(context, instance_id,
                                    network, address=address)
+
+    def _allocate_fixed_ips_hack(self, context, instance_id, host, networks,
+                            **kwargs):
+        """Calls allocate_fixed_ip once for each network."""
+        for label, nw_list in networks.iteritems():
+            for nw in nw_list:
+                try:
+                    self.allocate_fixed_ip(context, instance_id, nw)
+                    break
+                except exception.NoMoreFixedIps:
+                    continue
+            else:
+                raise exception.NoMoreFixedIps()
 
     def deallocate_fixed_ip(self, context, address, **kwargs):
         """Returns a fixed ip to the pool."""
