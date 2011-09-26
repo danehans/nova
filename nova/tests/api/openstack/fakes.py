@@ -15,16 +15,11 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import copy
-import random
-import string
-
 import webob
 import webob.dec
 from paste import urlmap
 
 from glance import client as glance_client
-from glance.common import exception as glance_exc
 
 from nova import context
 from nova import exception as exc
@@ -39,8 +34,6 @@ from nova.api.openstack import versions
 from nova.api.openstack import limits
 from nova.auth.manager import User, Project
 import nova.image.fake
-from nova.image import glance
-from nova.tests import fake_flags
 from nova.tests.glance import stubs as glance_stubs
 
 
@@ -177,6 +170,41 @@ def stub_out_compute_api_backup(stubs):
     stubs.Set(nova.compute.API, 'backup', backup)
 
 
+def stub_out_nw_api_get_instance_nw_info(stubs, func=None):
+    def get_instance_nw_info(self, context, instance):
+        return [(None, {'label': 'public',
+                         'ips': [{'ip': '192.168.0.3'}],
+                         'ip6s': []})]
+
+    if func is None:
+        func = get_instance_nw_info
+    stubs.Set(nova.network.API, 'get_instance_nw_info', func)
+
+
+def stub_out_nw_api_get_floating_ips_by_fixed_address(stubs, func=None):
+    def get_floating_ips_by_fixed_address(self, context, fixed_ip):
+        return ['1.2.3.4']
+
+    if func is None:
+        func = get_floating_ips_by_fixed_address
+    stubs.Set(nova.network.API, 'get_floating_ips_by_fixed_address', func)
+
+
+def stub_out_nw_api(stubs, cls=None):
+    class Fake:
+        def get_instance_nw_info(*args, **kwargs):
+            pass
+
+        def get_floating_ips_by_fixed_address(*args, **kwargs):
+            pass
+
+    if cls is None:
+        cls = Fake
+    stubs.Set(nova.network, 'API', cls)
+    stub_out_nw_api_get_floating_ips_by_fixed_address(stubs)
+    stub_out_nw_api_get_instance_nw_info(stubs)
+
+
 def _make_image_fixtures():
     NOW_GLANCE_FORMAT = "2010-10-11T10:30:22"
 
@@ -191,7 +219,8 @@ def _make_image_fixtures():
 
     # Public image
     add_fixture(id=image_id, name='public image', is_public=True,
-                status='active', properties={'key1': 'value1'})
+                status='active', properties={'key1': 'value1'},
+                min_ram="128", min_disk="10")
     image_id += 1
 
     # Snapshot for User 1
