@@ -143,17 +143,7 @@ class Controller(object):
         return cooked
 
 
-class ControllerV11(Controller):
-    """Controller for 1.1 Zone resources."""
-    pass
-
-
 def create_resource(version):
-    controller = {
-        '1.0': Controller,
-        '1.1': ControllerV11,
-    }[version]()
-
     metadata = {
         "attributes": {
             "zone": ["id", "api_url", "name", "capabilities"],
@@ -171,4 +161,4 @@ def create_resource(version):
     }
     deserializer = wsgi.RequestDeserializer(body_deserializers)
 
-    return wsgi.Resource(controller, deserializer, serializer)
+    return wsgi.Resource(Controller(), deserializer, serializer)
