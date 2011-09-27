@@ -87,6 +87,7 @@ class ExtensionControllerTest(test.TestCase):
         self.ext_list = [
             "Createserverext",
             "DeferredDelete",
+            "DiskConfig",
             "FlavorExtraSpecs",
             "FlavorExtraData",
             "Floating_ips",
