@@ -296,6 +296,8 @@ def get_networks_for_instance(context, instance):
 
     networks = {}
     for net, info in nw_info:
+        if not info:
+            continue
         try:
             network = {'ips': []}
             network['floating_ips'] = []
@@ -307,7 +309,6 @@ def get_networks_for_instance(context, instance):
             if FLAGS.use_ipv6 and 'ip6s' in info:
                 network['ips'].extend([_emit_addr(ip['ip'], 6)
                         for ip in info['ip6s']])
-
         # NOTE(comstud): These exception checks are for lp830817
         # (Restoring them after a refactoring removed)
         except TypeError:
