@@ -296,17 +296,26 @@ def get_networks_for_instance(context, instance):
 
     networks = {}
     for net, info in nw_info:
-        network = {'ips': []}
-        network['floating_ips'] = []
-        if 'ip6s' in info:
-            network['ips'].extend([_emit_addr(ip['ip'],
-                                              6) for ip in info['ip6s']])
+        try:
+            network = {'ips': []}
+            network['floating_ips'] = []
+            for ip in info['ips']:
+                network['ips'].append(_emit_addr(ip['ip'], 4))
+                floats = [_emit_addr(addr, 4)
+                        for addr in _get_floats(ip['ip'])]
+                network['floating_ips'].extend(floats)
+            if FLAGS.use_ipv6 and 'ip6s' in info:
+                network['ips'].extend([_emit_addr(ip['ip'], 6)
+                        for ip in info['ip6s']])
 
-        for ip in info['ips']:
-            network['ips'].append(_emit_addr(ip['ip'], 4))
-            floats = [_emit_addr(addr,
-                                 4) for addr in _get_floats(ip['ip'])]
-            network['floating_ips'].extend(floats)
+        # NOTE(comstud): These exception checks are for lp830817
+        # (Restoring them after a refactoring removed)
+        except TypeError:
+            raise
+            continue
+        except KeyError:
+            raise
+            continue
         networks[info['label']] = network
     return networks
 
