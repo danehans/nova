@@ -19,11 +19,11 @@
 import hashlib
 import os
 
+from nova.api.openstack import common
+from nova.compute import vm_states
 from nova import exception
 from nova import log as logging
 from nova import utils
-from nova.api.openstack import common
-from nova.compute import vm_states
 
 
 LOG = logging.getLogger('nova.api.openstack.views.servers')
@@ -37,7 +37,8 @@ class ViewBuilder(object):
 
     """
 
-    def __init__(self, addresses_builder):
+    def __init__(self, context, addresses_builder):
+        self.context = context
         self.addresses_builder = addresses_builder
 
     def build(self, inst, networks, is_detail=False):
@@ -69,7 +70,7 @@ class ViewBuilder(object):
         """Return a simple model of a server."""
         return dict(server=dict(id=inst['id'], name=inst['display_name']))
 
-    def _build_detail(self, inst, networks):
+    def _build_detail(self, inst):
         """Returns a detailed model of a server."""
         vm_state = inst.get('vm_state', vm_states.BUILDING)
         task_state = inst.get('task_state')
@@ -93,6 +94,7 @@ class ViewBuilder(object):
 
         self._build_image(inst_dict, inst)
         self._build_flavor(inst_dict, inst)
+        networks = common.get_networks_for_intstance(self.context, inst)
         self._build_addresses(inst_dict, networks)
 
         return dict(server=inst_dict)
