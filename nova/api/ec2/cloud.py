@@ -289,8 +289,7 @@ class CloudController(object):
                 search_opts=search_opts):
             fixed_ips = self._get_fixed_ips_for_instance(context, instance)[0]
             if fixed_ips:
-                line = '%s slots=%d' % (instance['fixed_ips'][0]['ip'],
-                                        instance['vcpus'])
+                line = '%s slots=%d' % (fixed_ips[0], instance['vcpus'])
                 key = str(instance['key_name'])
                 if key in result:
                     result[key].append(line)
