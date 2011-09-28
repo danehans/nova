@@ -959,7 +959,6 @@ class API(base.Base):
                 'name': 'display_name',
                 'instance_name': 'name',
                 'tenant_id': 'project_id',
-                'local_zone_only': None,
                 'flavor': _remap_flavor_filter,
                 'fixed_ip': _remap_fixed_ip_filter}
 
@@ -974,11 +973,12 @@ class API(base.Base):
             except KeyError:
                 filters[opt] = value
             else:
-                if remap_object:
-                    if isinstance(remap_object, basestring):
-                        filters[remap_object] = value
-                    else:
-                        remap_object(value)
+                # Remaps are strings to translate to, or functions to call
+                # to do the translating as defined by the table above.
+                if isinstance(remap_object, basestring):
+                    filters[remap_object] = value
+                else:
+                    remap_object(value)
 
         local_zone_only = search_opts.get('local_zone_only', False)
 

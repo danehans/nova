@@ -141,9 +141,8 @@ class Controller(object):
                 self._get_server_search_options())
 
         # Convert local_zone_only into a boolean
-        if 'local_zone_only' in search_opts:
-            search_opts['local_zone_only'] = utils.bool_from_str(
-                    search_opts['local_zone_only'])
+        search_opts['local_zone_only'] = utils.bool_from_str(
+                search_opts.get('local_zone_only', False))
 
         # If search by 'status', we need to convert it to 'vm_state'
         # to pass on to child zones.
