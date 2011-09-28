@@ -207,8 +207,6 @@ def stub_out_nw_api(stubs, cls=None, private=None, publics=None):
     if cls is None:
         cls = Fake
     stubs.Set(nova.network, 'API', cls)
-#    stub_out_nw_api_get_floating_ips_by_fixed_address(stubs)
-#    stub_out_nw_api_get_instance_nw_info(stubs)
 
 
 def _make_image_fixtures():
