@@ -41,10 +41,10 @@ from nova import exception
 from nova import flags
 from nova import image
 from nova import log as logging
-from nova.scheduler import api as scheduler_api
-from nova.rpc import common as rpc_common
-from nova import utils
 from nova import quota
+from nova.rpc import common as rpc_common
+from nova.scheduler import api as scheduler_api
+from nova import utils
 
 
 LOG = logging.getLogger('nova.api.openstack.servers')
