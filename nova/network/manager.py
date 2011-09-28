@@ -539,10 +539,6 @@ class NetworkManager(manager.SchedulerDependentManager):
                                      networks, vpn=vpn,
                                      requested_networks=requested_networks)
 
-        self._allocate_mac_addresses(context, instance_id, networks)
-        self._allocate_fixed_ips(admin_context, instance_id,
-                                 host, networks, vpn=vpn,
-                                 requested_networks=requested_networks)
         return self.get_instance_nw_info(context, instance_id, type_id, host)
 
     def deallocate_for_instance(self, context, **kwargs):
