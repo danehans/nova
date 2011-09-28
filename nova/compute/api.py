@@ -959,7 +959,7 @@ class API(base.Base):
                 'name': 'display_name',
                 'instance_name': 'name',
                 'tenant_id': 'project_id',
-                'recurse_zones': None,
+                'local_zone_only': None,
                 'flavor': _remap_flavor_filter,
                 'fixed_ip': _remap_fixed_ip_filter}
 
@@ -980,13 +980,11 @@ class API(base.Base):
                     else:
                         remap_object(value)
 
-        recurse_zones = search_opts.get('recurse_zones', False)
-        if 'reservation_id' in filters:
-            recurse_zones = True
+        local_zone_only = search_opts.get('local_zone_only', False)
 
         instances = self._get_instances_by_filters(context, filters)
 
-        if not recurse_zones:
+        if local_zone_only:
             return instances
 
         # Recurse zones. Send along the un-modified search options we received.
