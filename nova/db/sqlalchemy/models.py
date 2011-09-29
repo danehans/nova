@@ -169,7 +169,10 @@ class Instance(BASE, NovaBase):
 
     @property
     def name(self):
-        base_name = FLAGS.instance_name_template % self.id
+        try:
+            base_name = FLAGS.instance_name_template % self.id
+        except TypeError:
+            base_name = FLAGS.instance_name_template % dict(self.iteritems())
         if getattr(self, '_rescue', False):
             base_name += "-rescue"
         return base_name

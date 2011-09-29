@@ -1542,6 +1542,28 @@ class ComputeTestCase(test.TestCase):
                 self.assertEqual(instance['reservation_id'], resv_id)
                 db.instance_destroy(self.context, instance['id'])
 
+    def test_instance_name_template(self):
+        """Test the instance_name template"""
+        self.flags(instance_name_template='instance-%d')
+        instance_id = self._create_instance()
+        i_ref = db.instance_get(self.context, instance_id)
+        self.assertEqual(i_ref['name'], 'instance-%d' % i_ref['id'])
+        db.instance_destroy(self.context, i_ref['id'])
+
+        self.flags(instance_name_template='instance-%(uuid)s')
+        instance_id = self._create_instance()
+        i_ref = db.instance_get(self.context, instance_id)
+        self.assertEqual(i_ref['name'], 'instance-%s' % i_ref['uuid'])
+        db.instance_destroy(self.context, i_ref['id'])
+
+        self.flags(instance_name_template='%(id)d-%(uuid)s')
+        uuid = utils.gen_uuid()
+        instance_id = self._create_instance()
+        i_ref = db.instance_get(self.context, instance_id)
+        self.assertEqual(i_ref['name'], '%d-%s' %
+                (i_ref['id'], i_ref['uuid']))
+        db.instance_destroy(self.context, i_ref['id'])
+
 
 class ComputeTestMinRamMinDisk(test.TestCase):
     def setUp(self):
