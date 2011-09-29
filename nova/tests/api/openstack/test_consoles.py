@@ -34,12 +34,6 @@ from nova import utils
 
 FLAGS = flags.FLAGS
 FAKE_UUID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-NS = "{http://docs.openstack.org/compute/api/v1.1}"
-ATOMNS = "{http://www.w3.org/2005/Atom}"
-XPATH_NS = {
-    'atom': 'http://www.w3.org/2005/Atom',
-    'ns': 'http://docs.openstack.org/compute/api/v1.1'
-}
 
 
 def return_server_by_id(context, id):
@@ -107,8 +101,6 @@ def stub_instance(id, user_id='fake', project_id='fake', host=None,
     return instance
 
 
-
-
 class ConsolesTest(test.TestCase):
     def setUp(self):
         super(ConsolesTest, self).setUp()
@@ -149,3 +141,92 @@ class ConsolesTest(test.TestCase):
         self.assertEqual(res.status_int, 200)
         res_dict = json.loads(res.body)
         self.assertDictMatch(res_dict, expected)
+
+    def test_show_console_unknown_console(self):
+        def fake_get_console(cons_self, context, instance_id, console_id):
+            raise exception.ConsoleNotFound(console_id=console_id)
+
+        self.stubs.Set(console.API, 'get_console', fake_get_console)
+
+        req = webob.Request.blank('/v1.0/servers/10/consoles/20')
+        res = req.get_response(fakes.wsgi_app())
+        self.assertEqual(res.status_int, 404)
+
+    def test_show_console_unknown_instance(self):
+        def fake_get_console(cons_self, context, instance_id, console_id):
+            raise exception.InstanceNotFound(instance_id=instance_id)
+
+        self.stubs.Set(console.API, 'get_console', fake_get_console)
+
+        req = webob.Request.blank('/v1.0/servers/10/consoles/20')
+        res = req.get_response(fakes.wsgi_app())
+        self.assertEqual(res.status_int, 404)
+
+    def test_list_consoles(self):
+        def fake_get_consoles(cons_self, context, instance_id):
+            self.assertEqual(instance_id, 10)
+
+            pool1 = dict(console_type='fake_type',
+                    public_hostname='fake_hostname')
+            cons1 = dict(id=10, password='fake_password',
+                    port='fake_port', pool=pool1)
+            pool2 = dict(console_type='fake_type2',
+                    public_hostname='fake_hostname2')
+            cons2 = dict(id=11, password='fake_password2',
+                    port='fake_port2', pool=pool2)
+            return [cons1, cons2]
+
+        expected = {'consoles':
+                [{'console': {'id': 10, 'console_type': 'fake_type'}},
+                 {'console': {'id': 11, 'console_type': 'fake_type2'}}]}
+
+        self.stubs.Set(console.API, 'get_consoles', fake_get_consoles)
+
+        req = webob.Request.blank('/v1.0/servers/10/consoles')
+        res = req.get_response(fakes.wsgi_app())
+        self.assertEqual(res.status_int, 200)
+        res_dict = json.loads(res.body)
+        self.assertDictMatch(res_dict, expected)
+
+    def test_delete_console(self):
+        def fake_get_console(cons_self, context, instance_id, console_id):
+            self.assertEqual(instance_id, 10)
+            self.assertEqual(console_id, 20)
+            pool = dict(console_type='fake_type',
+                    public_hostname='fake_hostname')
+            return dict(id=console_id, password='fake_password',
+                    port='fake_port', pool=pool)
+
+        def fake_delete_console(cons_self, context, instance_id, console_id):
+            self.assertEqual(instance_id, 10)
+            self.assertEqual(console_id, 20)
+
+        self.stubs.Set(console.API, 'get_console', fake_get_console)
+        self.stubs.Set(console.API, 'delete_console', fake_delete_console)
+
+        req = webob.Request.blank('/v1.0/servers/10/consoles/20')
+        req.method = "DELETE"
+        res = req.get_response(fakes.wsgi_app())
+        self.assertEqual(res.status_int, 202)
+
+    def test_show_console_unknown_console(self):
+        def fake_delete_console(cons_self, context, instance_id, console_id):
+            raise exception.ConsoleNotFound(console_id=console_id)
+
+        self.stubs.Set(console.API, 'delete_console', fake_delete_console)
+
+        req = webob.Request.blank('/v1.0/servers/10/consoles/20')
+        req.method = "DELETE"
+        res = req.get_response(fakes.wsgi_app())
+        self.assertEqual(res.status_int, 404)
+
+    def test_show_console_unknown_instance(self):
+        def fake_delete_console(cons_self, context, instance_id, console_id):
+            raise exception.InstanceNotFound(instance_id=instance_id)
+
+        self.stubs.Set(console.API, 'delete_console', fake_delete_console)
+
+        req = webob.Request.blank('/v1.0/servers/10/consoles/20')
+        req.method = "DELETE"
+        res = req.get_response(fakes.wsgi_app())
+        self.assertEqual(res.status_int, 404)
