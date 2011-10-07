@@ -646,7 +646,9 @@ class NetworkManager(manager.SchedulerDependentManager):
             except exception.NotFound, e:
                 LOG.warn(_('Instance %s gone missing when finding vifs') %
                         instance_id)
-                nw_infos[instance_id] = []
+                # The call needs to return an entry for each instance ID,
+                # even if it doesn't exist.
+                yield []
                 continue
 
             network_id_table = {}
