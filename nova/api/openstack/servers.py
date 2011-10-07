@@ -34,7 +34,6 @@ from nova.api.openstack import wsgi
 from nova.api.openstack import xmlutil
 from nova import compute
 from nova.compute import instance_types
-from nova import network
 from nova import db
 from nova import exception
 from nova import flags
@@ -63,7 +62,6 @@ class Controller(object):
 
     def __init__(self):
         self.compute_api = compute.API()
-        self.network_api = network.API()
 
     def index(self, req):
         """ Returns a list of server names and ids for a given user """

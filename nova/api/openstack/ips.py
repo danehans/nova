@@ -58,19 +58,23 @@ class ControllerV10(Controller):
     def index(self, req, server_id):
         context = req.environ['nova.context']
         instance = self._get_instance(context, server_id)
-        networks = common.get_networks_for_instance(context, instance)
+        ip_addr_infos = self.network_api.get_ip_info_for_instances(
+                self.context, [instance], include_floating_ips=True)
+        ip_addr_info = list(ip_addr_infos)[0]
         builder = self._get_view_builder(req)
-        return {'addresses': builder.build(networks)}
+        return {'addresses': builder.build(ip_addr_info)}
 
     def show(self, req, server_id, id):
         context = req.environ['nova.context']
         instance = self._get_instance(context, server_id)
-        networks = common.get_networks_for_instance(context, instance)
+        ip_addr_infos = self.network_api.get_ip_info_for_instances(
+                self.context, [instance], include_floating_ips=True)
+        ip_addr_info = list(ip_addr_infos)[0]
         builder = self._get_view_builder(req)
         if id == 'private':
-            view = builder.build_private_parts(networks)
+            view = builder.build_private_parts(ip_addr_info)
         elif id == 'public':
-            view = builder.build_public_parts(networks)
+            view = builder.build_public_parts(ip_addr_info)
         else:
             msg = _("Only private and public networks available")
             raise exc.HTTPNotFound(explanation=msg)
@@ -86,14 +90,20 @@ class ControllerV11(Controller):
     def index(self, req, server_id):
         context = req.environ['nova.context']
         instance = self._get_instance(context, server_id)
-        networks = common.get_networks_for_instance(context, instance)
-        return {'addresses': self._get_view_builder(req).build(networks)}
+        ip_addr_infos = self.network_api.get_ip_info_for_instances(
+                self.context, [instance], include_floating_ips=True)
+        ip_addr_info = list(ip_addr_infos)[0]
+        builder = self._get_view_builder(req)
+        return {'addresses': builder.build(ip_addr_info)}
 
-    def show(self, req, server_id, id):
+    def show(self, req, server_id, network_label):
         context = req.environ['nova.context']
         instance = self._get_instance(context, server_id)
-        networks = common.get_networks_for_instance(context, instance)
-        network = self._get_view_builder(req).build_network(networks, id)
+        ip_addr_infos = self.network_api.get_ip_info_for_instances(
+                self.context, [instance], include_floating_ips=True)
+        ip_addr_info = list(ip_addr_infos)[0]
+        builder = self._get_view_builder(req)
+        network = builder.build_network(ip_addr_info, network_label)
 
         if network is None:
             msg = _("Instance is not a member of specified network")
