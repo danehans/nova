@@ -29,7 +29,6 @@ from nova.compute import task_states
 from nova import exception
 from nova import flags
 from nova import log as logging
-from nova import network
 from nova import quota
 
 
@@ -270,16 +269,6 @@ def dict_to_query_str(params):
         param_str = param_str + '='.join([str(key), str(val)]) + '&'
 
     return param_str.rstrip('&')
-
-
-def get_ip_info_for_instances(context, instance_list):
-    """Return IP information for a list of instances.
-    Returns a dictionary keyed by instance ID
-    """
-
-    network_api = network.API()
-    return network_api.get_ip_info_for_instances(context, instance_ids,
-            include_floating_ips=True)
 
 
 class MetadataXMLDeserializer(wsgi.XMLDeserializer):
