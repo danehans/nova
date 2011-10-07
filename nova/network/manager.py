@@ -636,10 +636,9 @@ class NetworkManager(manager.SchedulerDependentManager):
             try:
                 fixed_ips = self.db.fixed_ip_get_by_instance(context,
                     instance_id)
-                except exception.FixedIpNotFoundForInstance:
-                    LOG.warn(_('No fixed IPs for instance %s') %
-                            instance_id)
-                    fixed_ips = []
+            except exception.FixedIpNotFoundForInstance:
+                LOG.warn(_('No fixed IPs for instance %s') % instance_id)
+                fixed_ips = []
 
             try:
                 vifs = self.db.virtual_interface_get_by_instance(context,

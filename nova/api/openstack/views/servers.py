@@ -23,6 +23,7 @@ from nova.api.openstack import common
 from nova.compute import vm_states
 from nova import exception
 from nova import log as logging
+from nova import network
 from nova import utils
 
 
@@ -40,6 +41,7 @@ class ViewBuilder(object):
     def __init__(self, context, addresses_builder):
         self.context = context
         self.addresses_builder = addresses_builder
+        self.network_api = network.API()
 
     def build(self, inst, ip_addr_info=None, is_detail=False):
         """Return a dict that represenst a server."""
@@ -225,8 +227,8 @@ class ViewBuilderV11(ViewBuilder):
         servers_links = []
 
         if is_detail:
-            ip_addr_infos = common.get_ips_for_instances(self.context,
-                    server_objs)
+            ip_addr_infos = self.network_api.get_ip_info_for_instances(
+                    self.context, server_objs, include_floating_ips=True)
             for server_obj in server_objs:
                 ip_addr_info = ip_addr_infos.next()
                 servers.append(self.build(server_obj,

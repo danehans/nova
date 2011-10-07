@@ -25,19 +25,19 @@ FLAGS = flags.FLAGS
 LOG = logging.getLogger('nova.api.openstack.views.addresses')
 
 
-def _extract_ipv4_addresses(self, ip_info):
+def _extract_ipv4_addresses(ip_info):
     for fixed_ip in ip_info['fixed_ips']:
-        yield self._build_ip_entity(fixed_ip['address'], 4)
+        yield _build_ip_entity(fixed_ip['address'], 4)
         for floating_ip in fixed_ip.get('floating_ips', []):
-            yield self._build_ip_entity(floating_ip['address'], 4)
+            yield _build_ip_entity(floating_ip['address'], 4)
 
 
-def _extract_ipv6_address(self, ip_info):
+def _extract_ipv6_addresses(ip_info):
     for fixed_ip6 in ip_info.get('fixed_ip6s', []):
-        yield self._build_ip_entity(fixed_ip6, 6)
+        yield _build_ip_entity(fixed_ip6, 6)
 
 
-def _build_ip_entity(self, address, version):
+def _build_ip_entity(address, version):
     return {'addr': address, 'version': version}
 
 
