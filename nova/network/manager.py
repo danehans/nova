@@ -617,17 +617,22 @@ class NetworkManager(manager.SchedulerDependentManager):
             network_info.append((network_dict, info))
         return network_info
 
-    def get_nw_info_for_instances(self, context, instance_id_list,
+    def get_ip_info_for_instances(self, context, instance_ids,
             include_floating_ips=False):
         """Return networking information for multiple instances in
-        this format:
-        {instance_id:
-            [{'network': network_label,
-              'fixed_ips': {'address', 'floating_ips': []}}]
-        }
+        this format for every instance:
+
+        [{'network': network_label,
+          'fixed_ips': {'address': ip_address, 'floating_ips': []},
+          'fixed_ip6s': []
+         }
+        ]
+
+        The return value is generator that will yield a list like above
+        for every instance_id requested.  This allows us to use
+        rpc.multicall
         """
-        nw_infos = {}
-        for instance_id in instance_id_list:
+        for instance_id in instance_ids:
             try:
                 fixed_ips = self.db.fixed_ip_get_by_instance(context,
                     instance_id)
@@ -646,6 +651,7 @@ class NetworkManager(manager.SchedulerDependentManager):
                 continue
 
             network_id_table = {}
+
             def _network_id_table_add(network_id, label=None):
                 if label is None:
                     label = 'network-%s' % network_id
@@ -659,7 +665,7 @@ class NetworkManager(manager.SchedulerDependentManager):
                     continue
                 entry = _network_id_table_add(network['id'],
                         network['label'])
-                if network['cidr_v6']:
+                if FLAGS.use_ipv6 and network['cidr_v6']:
                     ip6 = ipv6.to_global(network['cidr_v6'],
                                          vif['address'],
                                          network['project_id']),
@@ -677,8 +683,8 @@ class NetworkManager(manager.SchedulerDependentManager):
                     floating_ips = self.get_floating_ips_by_fixed_address(
                             context, fixed_addr)
                 network_dict['fixed_ips'].append(ip_dict)
-            nw_infos[instance_id] = [network_id_table.itervalues()]
-        return nw_infos.iteritems()
+            yield network_id_table.values()
+        raise StopIteration
 
     def _allocate_mac_addresses(self, context, instance_id, networks):
         """Generates mac addresses and creates vif rows in db for them."""
