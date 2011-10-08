@@ -18,8 +18,6 @@
 
 """Handles all requests relating to instances (guest vms)."""
 
-import itertools
-
 from nova.db import base
 from nova import exception
 from nova import flags
@@ -227,82 +225,6 @@ class API(base.Base):
             if err.exc_type == 'InstanceNotFound':
                 raise exception.InstanceNotFound(instance_id=instance['id'])
             raise
-
-    def get_ip_info_for_instances(self, context, instances,
-            include_floating_ips=None):
-        """Return IP information for a list of instances.
-        This chunks requests into multiple RPC multicalls in an efficient
-        manner, so RPC message sizes aren't too large.  rpc.multicall is
-        used which returns a generator.  We also return a generator so
-        results can be retrieved after the first multicall.
-        """
-
-        # FIXME(comstud): I'm creating a class here to use as a generator
-        # instead of yielding results, so that we can catch '__del__' and
-        # finish off the multicall, even if the caller doesn't care about
-        # the rest of the results (maybe they caught an exception).
-        # Without doing this, the Multicall object seems to not be deleted
-        # immediately, leaving RPC connections used and not returned to
-        # the pool.
-
-        class ip_info_iter(object):
-            def __init__(self):
-                self.chunk_size = 100
-                self.context = context
-                self.num_loops = int(
-                        (len(instances) + self.chunk_size - 1) /
-                                self.chunk_size)
-                self.instance_ids = (instance['id']
-                        for instance in instances)
-                self.include_floating_ips = include_floating_ips
-                if self.num_loops:
-                    self._get_ip_infos()
-                else:
-                    self.ip_infos = None
-
-            def __del__(self):
-                """Finish off the multicall if caller bailed early."""
-                if self.ip_infos is not None:
-                    try:
-                        while True:
-                            self.next()
-                    except StopIteration:
-                        pass
-
-            def _get_ip_infos(self):
-                """Get the next slice of the instance_ids as an iterator
-                and start the multicall
-                """
-                islice = itertools.islice(self.instance_ids, 0,
-                        self.chunk_size)
-                args = {'instance_ids': islice}
-                if self.include_floating_ips is not None:
-                    args['include_floating_ips'] = include_floating_ips
-                self.ip_infos = rpc.multicall(self.context,
-                        FLAGS.network_topic,
-                        {'method': 'get_ip_info_for_instances',
-                         'args': args})
-
-            def __iter__(self):
-                return self
-
-            def next(self):
-                if self.ip_infos is None:
-                    raise StopIteration
-                while True:
-                    try:
-                        ip_info = self.ip_infos.next()
-                    except StopIteration:
-                        self.num_loops -= 1
-                        if not self.num_loops:
-                            self.ip_infos = None
-                            raise StopIteration
-                        self._get_ip_infos()
-                    else:
-                        break
-                return ip_info
-
-        return ip_info_iter()
 
     def validate_networks(self, context, requested_networks):
         """validate the networks passed at the time of creating
