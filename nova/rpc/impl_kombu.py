@@ -692,19 +692,21 @@ class MulticallWaiter(object):
             self._result = data['result']
 
     def __iter__(self):
+        return self
+
+    def next(self):
         """Return a result until we get a 'None' response from consumer"""
         if self._done:
             raise StopIteration
-        while True:
-            self._iterator.next()
-            result = self._result
-            if isinstance(result, Exception):
-                self.done()
-                raise result
-            if result == None:
-                self.done()
-                raise StopIteration
-            yield result
+        self._iterator.next()
+        result = self._result
+        if isinstance(result, Exception):
+            self.done()
+            raise result
+        if result == None:
+            self.done()
+            raise StopIteration
+        return result
 
 
 def create_connection(new=True):

@@ -649,6 +649,80 @@ class NetworkManager(manager.SchedulerDependentManager):
             network_info.append((network_dict, info))
         return network_info
 
+    def get_ip_info_for_instances(self, context, instance_ids,
+            include_floating_ips=False):
+        """Return networking information for multiple instances in
+        this format for every instance:
+
+        [{'network': network_label,
+          'fixed_ips': {'address': ip_address, 'floating_ips': []},
+          'fixed_ip6s': []
+         }
+        ]
+
+        The return value is generator that will yield a list like above
+        for every instance_id requested.  This allows us to use
+        rpc.multicall
+        """
+        for instance_id in instance_ids:
+            try:
+                fixed_ips = self.db.fixed_ip_get_by_instance(context,
+                    instance_id)
+            except exception.FixedIpNotFoundForInstance:
+                LOG.warn(_('No fixed IPs for instance %s') % instance_id)
+                fixed_ips = []
+
+            try:
+                vifs = self.db.virtual_interface_get_by_instance(context,
+                        instance_id)
+            except exception.NotFound, e:
+                LOG.warn(_('Instance %s gone missing when finding vifs') %
+                        instance_id)
+                # The call needs to return an entry for each instance ID,
+                # even if it doesn't exist.
+                yield []
+                continue
+
+            network_id_table = {}
+
+            def _network_id_table_add(network_id, label=None):
+                if label is None:
+                    label = 'network-%s' % network_id
+                entry = dict(network=label, fixed_ips=[], fixed_ip6s=[])
+                network_id_table[network_id] = entry
+                return entry
+
+            for vif in vifs:
+                network = vif['network']
+                if network is None:
+                    continue
+                entry = _network_id_table_add(network['id'],
+                        network['label'])
+                if FLAGS.use_ipv6 and network['cidr_v6']:
+                    ip6 = ipv6.to_global(network['cidr_v6'],
+                                         vif['address'],
+                                         network['project_id']),
+                    entry['fixed_ip6s'].append(dict(address=ip6))
+
+            for fixed_ip in fixed_ips:
+                network_id = fixed_ip['network_id']
+                network_dict = network_id_table.get(network_id)
+                if not network_dict:
+                    # Unknown network.. create with default label
+                    network_dict = _network_id_table_add(network['id'])
+                fixed_addr = fixed_ip['address']
+                floating_ips = []
+                if include_floating_ips:
+                    floating_addrs = self.get_floating_ips_by_fixed_address(
+                            context, fixed_addr)
+                    for floating_addr in floating_addrs:
+                        floating_ips.append(dict(address=floating_addr))
+                ip_dict = dict(address=fixed_addr,
+                        floating_ips=floating_ips)
+                network_dict['fixed_ips'].append(ip_dict)
+            yield network_id_table.values()
+        raise StopIteration
+
     def _allocate_mac_addresses(self, context, instance_id, networks):
         """Generates mac addresses and creates vif rows in db for them."""
         for network in networks:

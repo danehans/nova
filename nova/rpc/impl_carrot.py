@@ -552,27 +552,29 @@ class MulticallWaiter(object):
             self._results.put(data['result'])
 
     def __iter__(self):
-        return self.wait()
+        return self
 
     def wait(self):
-        while True:
-            rv = None
-            while rv is None and not self._closed:
-                try:
-                    rv = self._consumer.fetch(enable_callbacks=True)
-                except Exception:
-                    self.close()
-                    raise
-                time.sleep(0.01)
+        self.next()
 
-            result = self._results.get()
-            if isinstance(result, Exception):
+    def next(self):
+        rv = None
+        while rv is None and not self._closed:
+            try:
+                rv = self._consumer.fetch(enable_callbacks=True)
+            except Exception:
                 self.close()
-                raise result
-            if result == None:
-                self.close()
-                raise StopIteration
-            yield result
+                raise
+            time.sleep(0.01)
+
+        result = self._results.get()
+        if isinstance(result, Exception):
+            self.close()
+            raise result
+        if result == None:
+            self.close()
+            raise StopIteration
+        return result
 
 
 def create_connection(new=True):
