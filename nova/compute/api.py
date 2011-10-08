@@ -47,7 +47,6 @@ LOG = logging.getLogger('nova.compute.api')
 
 FLAGS = flags.FLAGS
 flags.DECLARE('vncproxy_topic', 'nova.vnc')
-flags.DECLARE('reclaim_instance_interval', 'nova.compute.manager')
 flags.DEFINE_integer('find_host_timeout', 30,
                      'Timeout after NN seconds when looking for a host.')
 
@@ -82,17 +81,17 @@ def generate_default_display_name(instance):
 
 def _is_able_to_shutdown(instance, instance_id):
     vm_state = instance["vm_state"]
-    task_state = instance["task_state"]
 
     valid_shutdown_states = [
         vm_states.ACTIVE,
         vm_states.REBUILDING,
         vm_states.BUILDING,
+        vm_states.ERROR,
     ]
 
     if vm_state not in valid_shutdown_states:
-        LOG.warn(_("Instance %(instance_id)s is not in an 'active' state. It "
-                   "is currently %(vm_state)s. Shutdown aborted.") % locals())
+        LOG.warn(_("Instance %(instance_id)s cannot be shutdown from "
+                   "its current state: %(vm_state)s.") % locals())
         return False
 
     return True
@@ -959,7 +958,6 @@ class API(base.Base):
                 'name': 'display_name',
                 'instance_name': 'name',
                 'tenant_id': 'project_id',
-                'recurse_zones': None,
                 'flavor': _remap_flavor_filter,
                 'fixed_ip': _remap_fixed_ip_filter}
 
@@ -974,19 +972,18 @@ class API(base.Base):
             except KeyError:
                 filters[opt] = value
             else:
-                if remap_object:
-                    if isinstance(remap_object, basestring):
-                        filters[remap_object] = value
-                    else:
-                        remap_object(value)
+                # Remaps are strings to translate to, or functions to call
+                # to do the translating as defined by the table above.
+                if isinstance(remap_object, basestring):
+                    filters[remap_object] = value
+                else:
+                    remap_object(value)
 
-        recurse_zones = search_opts.get('recurse_zones', False)
-        if 'reservation_id' in filters:
-            recurse_zones = True
+        local_zone_only = search_opts.get('local_zone_only', False)
 
         instances = self._get_instances_by_filters(context, filters)
 
-        if not recurse_zones:
+        if local_zone_only:
             return instances
 
         # Recurse zones. Send along the un-modified search options we received.
@@ -1117,6 +1114,14 @@ class API(base.Base):
 
         """
         instance = self.db.instance_get(context, instance_id)
+        task_state = instance["task_state"]
+
+        if task_state == task_states.IMAGE_BACKUP:
+            raise exception.InstanceBackingUp(instance_id=instance_id)
+
+        if task_state == task_states.IMAGE_SNAPSHOT:
+            raise exception.InstanceSnapshotting(instance_id=instance_id)
+
         properties = {'instance_uuid': instance['uuid'],
                       'user_id': str(context.user_id),
                       'image_state': 'creating',

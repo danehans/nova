@@ -85,6 +85,7 @@ class ExtensionControllerTest(test.TestCase):
         ext_path = os.path.join(os.path.dirname(__file__), "extensions")
         self.flags(osapi_extensions_path=ext_path)
         self.ext_list = [
+            "AdminActions",
             "Createserverext",
             "DeferredDelete",
             "DiskConfig",
@@ -148,6 +149,13 @@ class ExtensionControllerTest(test.TestCase):
                 "description": "The Fox In Socks Extension",
                 "alias": "FOXNSOX",
                 "links": []})
+
+    def test_get_non_existing_extension_json(self):
+        app = openstack.APIRouterV11()
+        ext_midware = extensions.ExtensionMiddleware(app)
+        request = webob.Request.blank("/123/extensions/4")
+        response = request.get_response(ext_midware)
+        self.assertEqual(404, response.status_int)
 
     def test_list_extensions_xml(self):
         app = openstack.APIRouterV11()

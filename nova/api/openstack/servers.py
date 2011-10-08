@@ -18,33 +18,32 @@ import base64
 import os
 import traceback
 
-from novaclient import exceptions as novaclient_exceptions
 from lxml import etree
 from webob import exc
 import webob
 from xml.dom import minidom
 
+import nova.api.openstack
+from nova.api.openstack import common
+from nova.api.openstack import ips
+from nova.api.openstack.views import addresses as views_addresses
+from nova.api.openstack.views import flavors as views_flavors
+from nova.api.openstack.views import images as views_images
+from nova.api.openstack.views import servers as views_servers
+from nova.api.openstack import wsgi
+from nova.api.openstack import xmlutil
 from nova import compute
+from nova.compute import instance_types
 from nova import network
 from nova import db
 from nova import exception
 from nova import flags
 from nova import image
 from nova import log as logging
-from nova import utils
 from nova import quota
-from nova.api.openstack import common
-from nova.api.openstack import ips
-from nova.api.openstack import wsgi
-from nova.compute import instance_types
-from nova.scheduler import api as scheduler_api
-import nova.api.openstack
-import nova.api.openstack.views.addresses
-import nova.api.openstack.views.flavors
-import nova.api.openstack.views.images
-import nova.api.openstack.views.servers
-from nova.api.openstack import xmlutil
 from nova.rpc import common as rpc_common
+from nova.scheduler import api as scheduler_api
+from nova import utils
 
 
 LOG = logging.getLogger('nova.api.openstack.servers')
@@ -57,19 +56,6 @@ class ConvertedException(exc.WSGIHTTPException):
         self.title = title
         self.explanation = explanation
         super(ConvertedException, self).__init__()
-
-
-def novaclient_exception_converter(f):
-    """Convert novaclient ClientException HTTP codes to webob exceptions.
-    Has to be the outer-most decorator.
-    """
-    def new_f(*args, **kwargs):
-        try:
-            ret = f(*args, **kwargs)
-            return ret
-        except novaclient_exceptions.ClientException, e:
-            raise ConvertedException(e.code, e.message, e.details)
-    return new_f
 
 
 class Controller(object):
@@ -117,11 +103,6 @@ class Controller(object):
         """
         return None
 
-    def _get_networks_for_instance(self, req, instance):
-        return ips._get_networks_for_instance(req.environ['nova.context'],
-                                              self.network_api,
-                                              instance)
-
     def _get_block_device_mapping(self, data):
         """Get block_device_mapping from 'server' dictionary.
         Overidden by volumes controller.
@@ -140,9 +121,9 @@ class Controller(object):
         remove_invalid_options(context, search_opts,
                 self._get_server_search_options())
 
-        # Convert recurse_zones into a boolean
-        search_opts['recurse_zones'] = utils.bool_from_str(
-                search_opts.get('recurse_zones', False))
+        # Convert local_zone_only into a boolean
+        search_opts['local_zone_only'] = utils.bool_from_str(
+                search_opts.get('local_zone_only', False))
 
         # If search by 'status', we need to convert it to 'vm_state'
         # to pass on to child zones.
@@ -354,7 +335,7 @@ class Controller(object):
             expl = _('Userdata content cannot be decoded')
             raise exc.HTTPBadRequest(explanation=expl)
 
-    @novaclient_exception_converter
+    @exception.novaclient_converter
     @scheduler_api.redirect_handler
     def show(self, req, id):
         """ Returns server details by server id """
@@ -580,7 +561,7 @@ class Controller(object):
     def _update(self, context, req, id, inst_dict):
         return exc.HTTPNotImplemented()
 
-    @novaclient_exception_converter
+    @exception.novaclient_converter
     @scheduler_api.redirect_handler
     def action(self, req, id, body):
         """Multi-purpose method used to take actions on a server"""
@@ -719,41 +700,7 @@ class Controller(object):
             raise exc.HTTPUnprocessableEntity()
         return webob.Response(status_int=202)
 
-    @novaclient_exception_converter
-    @scheduler_api.redirect_handler
-    def lock(self, req, id):
-        """
-        lock the instance with id
-        admin only operation
-
-        """
-        context = req.environ['nova.context']
-        try:
-            self.compute_api.lock(context, id)
-        except Exception:
-            readable = traceback.format_exc()
-            LOG.exception(_("Compute.api::lock %s"), readable)
-            raise exc.HTTPUnprocessableEntity()
-        return webob.Response(status_int=202)
-
-    @novaclient_exception_converter
-    @scheduler_api.redirect_handler
-    def unlock(self, req, id):
-        """
-        unlock the instance with id
-        admin only operation
-
-        """
-        context = req.environ['nova.context']
-        try:
-            self.compute_api.unlock(context, id)
-        except Exception:
-            readable = traceback.format_exc()
-            LOG.exception(_("Compute.api::unlock %s"), readable)
-            raise exc.HTTPUnprocessableEntity()
-        return webob.Response(status_int=202)
-
-    @novaclient_exception_converter
+    @exception.novaclient_converter
     @scheduler_api.redirect_handler
     def get_lock(self, req, id):
         """
@@ -769,133 +716,7 @@ class Controller(object):
             raise exc.HTTPUnprocessableEntity()
         return webob.Response(status_int=202)
 
-    @novaclient_exception_converter
-    @scheduler_api.redirect_handler
-    def reset_network(self, req, id):
-        """
-        Reset networking on an instance (admin only).
-
-        """
-        context = req.environ['nova.context']
-        try:
-            self.compute_api.reset_network(context, id)
-        except Exception:
-            readable = traceback.format_exc()
-            LOG.exception(_("Compute.api::reset_network %s"), readable)
-            raise exc.HTTPUnprocessableEntity()
-        return webob.Response(status_int=202)
-
-    @novaclient_exception_converter
-    @scheduler_api.redirect_handler
-    def inject_network_info(self, req, id):
-        """
-        Inject network info for an instance (admin only).
-
-        """
-        context = req.environ['nova.context']
-        try:
-            self.compute_api.inject_network_info(context, id)
-        except Exception:
-            readable = traceback.format_exc()
-            LOG.exception(_("Compute.api::inject_network_info %s"), readable)
-            raise exc.HTTPUnprocessableEntity()
-        return webob.Response(status_int=202)
-
-    @novaclient_exception_converter
-    @scheduler_api.redirect_handler
-    def pause(self, req, id):
-        """ Permit Admins to Pause the server. """
-        ctxt = req.environ['nova.context']
-        try:
-            self.compute_api.pause(ctxt, id)
-        except Exception:
-            readable = traceback.format_exc()
-            LOG.exception(_("Compute.api::pause %s"), readable)
-            raise exc.HTTPUnprocessableEntity()
-        return webob.Response(status_int=202)
-
-    @novaclient_exception_converter
-    @scheduler_api.redirect_handler
-    def unpause(self, req, id):
-        """ Permit Admins to Unpause the server. """
-        ctxt = req.environ['nova.context']
-        try:
-            self.compute_api.unpause(ctxt, id)
-        except Exception:
-            readable = traceback.format_exc()
-            LOG.exception(_("Compute.api::unpause %s"), readable)
-            raise exc.HTTPUnprocessableEntity()
-        return webob.Response(status_int=202)
-
-    @novaclient_exception_converter
-    @scheduler_api.redirect_handler
-    def suspend(self, req, id):
-        """permit admins to suspend the server"""
-        context = req.environ['nova.context']
-        try:
-            self.compute_api.suspend(context, id)
-        except Exception:
-            readable = traceback.format_exc()
-            LOG.exception(_("compute.api::suspend %s"), readable)
-            raise exc.HTTPUnprocessableEntity()
-        return webob.Response(status_int=202)
-
-    @novaclient_exception_converter
-    @scheduler_api.redirect_handler
-    def resume(self, req, id):
-        """permit admins to resume the server from suspend"""
-        context = req.environ['nova.context']
-        try:
-            self.compute_api.resume(context, id)
-        except Exception:
-            readable = traceback.format_exc()
-            LOG.exception(_("compute.api::resume %s"), readable)
-            raise exc.HTTPUnprocessableEntity()
-        return webob.Response(status_int=202)
-
-    @novaclient_exception_converter
-    @scheduler_api.redirect_handler
-    def migrate(self, req, id):
-        try:
-            self.compute_api.resize(req.environ['nova.context'], id)
-        except Exception, e:
-            LOG.exception(_("Error in migrate %s"), e)
-            raise exc.HTTPBadRequest()
-        return webob.Response(status_int=202)
-
-    @novaclient_exception_converter
-    @scheduler_api.redirect_handler
-    def rescue(self, req, id, body={}):
-        """Permit users to rescue the server."""
-        context = req.environ["nova.context"]
-        try:
-            if 'rescue' in body and body['rescue'] and \
-                    'adminPass' in body['rescue']:
-                password = body['rescue']['adminPass']
-            else:
-                password = utils.generate_password(FLAGS.password_length)
-            self.compute_api.rescue(context, id, rescue_password=password)
-        except Exception:
-            readable = traceback.format_exc()
-            LOG.exception(_("compute.api::rescue %s"), readable)
-            raise exc.HTTPUnprocessableEntity()
-
-        return {'adminPass': password}
-
-    @novaclient_exception_converter
-    @scheduler_api.redirect_handler
-    def unrescue(self, req, id):
-        """Permit users to unrescue the server."""
-        context = req.environ["nova.context"]
-        try:
-            self.compute_api.unrescue(context, id)
-        except Exception:
-            readable = traceback.format_exc()
-            LOG.exception(_("compute.api::unrescue %s"), readable)
-            raise exc.HTTPUnprocessableEntity()
-        return webob.Response(status_int=202)
-
-    @novaclient_exception_converter
+    @exception.novaclient_converter
     @scheduler_api.redirect_handler
     def get_ajax_console(self, req, id):
         """Returns a url to an instance's ajaxterm console."""
@@ -906,7 +727,7 @@ class Controller(object):
             raise exc.HTTPNotFound()
         return webob.Response(status_int=202)
 
-    @novaclient_exception_converter
+    @exception.novaclient_converter
     @scheduler_api.redirect_handler
     def get_vnc_console(self, req, id):
         """Returns a url to an instance's ajaxterm console."""
@@ -917,7 +738,7 @@ class Controller(object):
             raise exc.HTTPNotFound()
         return webob.Response(status_int=202)
 
-    @novaclient_exception_converter
+    @exception.novaclient_converter
     @scheduler_api.redirect_handler
     def diagnostics(self, req, id):
         """Permit Admins to retrieve server diagnostics."""
@@ -960,7 +781,7 @@ class Controller(object):
 class ControllerV10(Controller):
     """v1.0 OpenStack API controller"""
 
-    @novaclient_exception_converter
+    @exception.novaclient_converter
     @scheduler_api.redirect_handler
     def delete(self, req, id):
         """ Destroys a server """
@@ -984,17 +805,16 @@ class ControllerV10(Controller):
         return data['server']['flavorId']
 
     def _build_view(self, req, instance, is_detail=False):
-        addresses = nova.api.openstack.views.addresses.ViewBuilderV10()
-        builder = nova.api.openstack.views.servers.ViewBuilderV10(addresses)
-        networks = self._get_networks_for_instance(req, instance)
-        return builder.build(instance, networks, is_detail=is_detail)
+        context = req.environ['nova.context']
+        addresses = views_addresses.ViewBuilderV10()
+        builder = views_servers.ViewBuilderV10(context, addresses)
+        return builder.build(instance, is_detail=is_detail)
 
     def _build_list(self, req, instances, is_detail=False):
-        addresses = nova.api.openstack.views.addresses.ViewBuilderV10()
-        builder = nova.api.openstack.views.servers.ViewBuilderV10(addresses)
-        get_nw = self._get_networks_for_instance
-        inst_data = [(inst, get_nw(req, inst)) for inst in instances]
-        return builder.build_list(inst_data, is_detail=is_detail)
+        context = req.environ['nova.context']
+        addresses = views_addresses.ViewBuilderV10()
+        builder = views_servers.ViewBuilderV10(context, addresses)
+        return builder.build_list(instances, is_detail=is_detail)
 
     def _limit_items(self, items, req):
         return common.limited(items, req)
@@ -1041,13 +861,13 @@ class ControllerV10(Controller):
 
     def _get_server_search_options(self):
         """Return server search options allowed by non-admin"""
-        return 'reservation_id', 'fixed_ip', 'name', 'recurse_zones'
+        return 'reservation_id', 'fixed_ip', 'name', 'local_zone_only'
 
 
 class ControllerV11(Controller):
     """v1.1 OpenStack API controller"""
 
-    @novaclient_exception_converter
+    @exception.novaclient_converter
     @scheduler_api.redirect_handler
     def delete(self, req, id):
         """ Destroys a server """
@@ -1081,18 +901,15 @@ class ControllerV11(Controller):
         return common.get_id_from_href(flavor_ref)
 
     def _build_view(self, req, instance, is_detail=False):
-        project_id = getattr(req.environ['nova.context'], 'project_id', '')
+        context = req.environ['nova.context']
+        project_id = getattr(context, 'project_id', '')
         base_url = req.application_url
-        flavor_builder = nova.api.openstack.views.flavors.ViewBuilderV11(
-            base_url, project_id)
-        image_builder = nova.api.openstack.views.images.ViewBuilderV11(
-            base_url, project_id)
-        addresses_builder = nova.api.openstack.views.addresses.ViewBuilderV11()
-        builder = nova.api.openstack.views.servers.ViewBuilderV11(
-            addresses_builder, flavor_builder, image_builder,
-            base_url, project_id)
-        networks = self._get_networks_for_instance(req, instance)
-        return builder.build(instance, networks, is_detail=is_detail)
+        flavor_builder = views_flavors.ViewBuilderV11(base_url, project_id)
+        image_builder = views_images.ViewBuilderV11(base_url, project_id)
+        addresses_builder = views_addresses.ViewBuilderV11()
+        builder = views_servers.ViewBuilderV11(context, addresses_builder,
+                flavor_builder, image_builder, base_url, project_id)
+        return builder.build(instance, is_detail=is_detail)
 
     def _build_list(self, req, instances, is_detail=False):
         params = req.GET.copy()
@@ -1101,19 +918,15 @@ class ControllerV11(Controller):
         for key, val in pagination_params.iteritems():
             params[key] = val
 
-        project_id = getattr(req.environ['nova.context'], 'project_id', '')
+        context = req.environ['nova.context']
+        project_id = getattr(context, 'project_id', '')
         base_url = req.application_url
-        flavor_builder = nova.api.openstack.views.flavors.ViewBuilderV11(
-            base_url, project_id)
-        image_builder = nova.api.openstack.views.images.ViewBuilderV11(
-            base_url, project_id)
-        addresses_builder = nova.api.openstack.views.addresses.ViewBuilderV11()
-        builder = nova.api.openstack.views.servers.ViewBuilderV11(
-            addresses_builder, flavor_builder, image_builder,
-            base_url, project_id)
-        get_nw = self._get_networks_for_instance
-        inst_data = [(inst, get_nw(req, inst)) for inst in instances]
-        return builder.build_list(inst_data, is_detail=is_detail, **params)
+        flavor_builder = views_flavors.ViewBuilderV11(base_url, project_id)
+        image_builder = views_images.ViewBuilderV11(base_url, project_id)
+        addresses_builder = views_addresses.ViewBuilderV11()
+        builder = views_servers.ViewBuilderV11(context, addresses_builder,
+                flavor_builder, image_builder, base_url, project_id)
+        return builder.build_list(instances, is_detail=is_detail, **params)
 
     def _action_change_password(self, input_dict, req, id):
         context = req.environ['nova.context']
@@ -1246,10 +1059,14 @@ class ControllerV11(Controller):
             msg = _("Invalid metadata")
             raise exc.HTTPBadRequest(explanation=msg)
 
-        image = self.compute_api.snapshot(context,
-                                          instance_id,
-                                          image_name,
-                                          extra_properties=props)
+        try:
+            image = self.compute_api.snapshot(context,
+                                              instance_id,
+                                              image_name,
+                                              extra_properties=props)
+        except exception.InstanceBusy:
+            msg = _("Server is currently creating an image. Please wait.")
+            raise webob.exc.HTTPConflict(explanation=msg)
 
         # build location of newly-created image entity
         image_id = str(image['id'])
@@ -1268,7 +1085,7 @@ class ControllerV11(Controller):
 
     def _get_server_search_options(self):
         """Return server search options allowed by non-admin"""
-        return ('reservation_id', 'name', 'recurse_zones',
+        return ('reservation_id', 'name', 'local_zone_only',
                 'status', 'image', 'flavor', 'changes-since')
 
 
