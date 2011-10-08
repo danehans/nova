@@ -19,6 +19,7 @@ import itertools
 
 from nova import flags
 from nova import log as logging
+from nova import utils
 
 
 FLAGS = flags.FLAGS
@@ -34,7 +35,7 @@ def _extract_ipv4_addresses(ip_info):
 
 def _extract_ipv6_addresses(ip_info):
     for fixed_ip6 in ip_info.get('fixed_ip6s', []):
-        yield _build_ip_entity(fixed_ip6, 6)
+        yield _build_ip_entity(fixed_ip6['address'], 6)
 
 
 def _build_ip_entity(address, version):
@@ -44,37 +45,43 @@ def _build_ip_entity(address, version):
 class ViewBuilder(object):
     """Models a server addresses response as a python dictionary."""
 
-    def build(self, ip_addr_info):
+    def build(self, ip_info):
         raise NotImplementedError()
 
 
 class ViewBuilderV10(ViewBuilder):
 
-    def build(self, ip_addr_info):
-        if not ip_addr_info:
+    def build(self, ip_info):
+        if not ip_info:
             return dict(public=[], private=[])
 
-        return dict(public=self.build_public_parts(ip_addr_info),
-                    private=self.build_private_parts(ip_addr_info))
+        return dict(public=self.build_public_parts(ip_info),
+                    private=self.build_private_parts(ip_info))
 
-    def build_public_parts(self, ip_addr_info):
-        return utils.get_from_path('fixed_ips/floating_ips/address')
+    def build_public_parts(self, ip_info):
+        return utils.get_from_path(ip_info,
+                'fixed_ips/floating_ips/address')
 
-    def build_private_parts(self, ip_addr_info):
-        return utils.get_from_path('fixed_ips/addres')
+    def build_private_parts(self, ip_info):
+        return utils.get_from_path(ip_info, 'fixed_ips/address')
 
 
 class ViewBuilderV11(ViewBuilder):
 
-    def build(self, ip_addr_info):
+    def build(self, ip_info):
         result = {}
-        for entry in ip_addr_info:
+        for entry in ip_info:
             network = entry['network']
             ips = list(_extract_ipv4_addresses(entry))
-            ip6s = list(_extract_ipv6_addresses(entry))
-            result[network] = ips + ip6s
+            if FLAGS.use_ipv6:
+                ip6s = list(_extract_ipv6_addresses(entry))
+                ips.extend(ip6s)
+            result[network] = ips
         return result
 
-    def build_network(self, ip_addr_info, requested_network):
-        networks = self.build(ip_addr_info)
-        return networks.get(requested_network, None)
+    def build_network(self, ip_info, requested_network):
+        networks = self.build(ip_info)
+        if requested_network in networks:
+            return {requested_network: networks[requested_network]}
+        else:
+            return None

@@ -26,6 +26,7 @@ from nova.api.openstack import wsgi
 from nova.api.openstack import xmlutil
 from nova import log as logging
 from nova import flags
+from nova import network
 
 
 LOG = logging.getLogger('nova.api.openstack.ips')
@@ -37,6 +38,7 @@ class Controller(object):
 
     def __init__(self):
         self.compute_api = nova.compute.API()
+        self.network_api = nova.network.API()
 
     def _get_instance(self, context, server_id):
         try:
@@ -58,23 +60,22 @@ class ControllerV10(Controller):
     def index(self, req, server_id):
         context = req.environ['nova.context']
         instance = self._get_instance(context, server_id)
-        ip_addr_infos = self.network_api.get_ip_info_for_instances(
-                self.context, [instance], include_floating_ips=True)
-        ip_addr_info = list(ip_addr_infos)[0]
+        ip_infos = self.network_api.get_ip_info_for_instances(
+                context, [instance], include_floating_ips=True)
         builder = self._get_view_builder(req)
-        return {'addresses': builder.build(ip_addr_info)}
+        return {'addresses': builder.build(ip_infos.next())}
 
     def show(self, req, server_id, id):
         context = req.environ['nova.context']
         instance = self._get_instance(context, server_id)
-        ip_addr_infos = self.network_api.get_ip_info_for_instances(
-                self.context, [instance], include_floating_ips=True)
-        ip_addr_info = list(ip_addr_infos)[0]
+        ip_infos = self.network_api.get_ip_info_for_instances(
+                context, [instance], include_floating_ips=True)
+        ip_info = ip_infos.next()
         builder = self._get_view_builder(req)
         if id == 'private':
-            view = builder.build_private_parts(ip_addr_info)
+            view = builder.build_private_parts(ip_info)
         elif id == 'public':
-            view = builder.build_public_parts(ip_addr_info)
+            view = builder.build_public_parts(ip_info)
         else:
             msg = _("Only private and public networks available")
             raise exc.HTTPNotFound(explanation=msg)
@@ -90,20 +91,19 @@ class ControllerV11(Controller):
     def index(self, req, server_id):
         context = req.environ['nova.context']
         instance = self._get_instance(context, server_id)
-        ip_addr_infos = self.network_api.get_ip_info_for_instances(
-                self.context, [instance], include_floating_ips=True)
-        ip_addr_info = list(ip_addr_infos)[0]
+        ip_infos = self.network_api.get_ip_info_for_instances(
+                context, [instance], include_floating_ips=True)
         builder = self._get_view_builder(req)
-        return {'addresses': builder.build(ip_addr_info)}
+        return {'addresses': builder.build(ip_infos.next())}
 
-    def show(self, req, server_id, network_label):
+    def show(self, req, server_id, id):
         context = req.environ['nova.context']
         instance = self._get_instance(context, server_id)
-        ip_addr_infos = self.network_api.get_ip_info_for_instances(
-                self.context, [instance], include_floating_ips=True)
-        ip_addr_info = list(ip_addr_infos)[0]
+        ip_infos = self.network_api.get_ip_info_for_instances(
+                context, [instance], include_floating_ips=True)
+        ip_info = ip_infos.next()
         builder = self._get_view_builder(req)
-        network = builder.build_network(ip_addr_info, network_label)
+        network = builder.build_network(ip_info, id)
 
         if network is None:
             msg = _("Instance is not a member of specified network")

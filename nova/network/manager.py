@@ -670,7 +670,7 @@ class NetworkManager(manager.SchedulerDependentManager):
                     ip6 = ipv6.to_global(network['cidr_v6'],
                                          vif['address'],
                                          network['project_id']),
-                    entry['fixed_ip6s'].append(ip6)
+                    entry['fixed_ip6s'].append(dict(address=ip6))
 
             for fixed_ip in fixed_ips:
                 network_id = fixed_ip['network_id']
@@ -679,10 +679,14 @@ class NetworkManager(manager.SchedulerDependentManager):
                     # Unknown network.. create with default label
                     network_dict = _network_id_table_add(network['id'])
                 fixed_addr = fixed_ip['address']
-                ip_dict = dict(address=fixed_addr)
+                floating_ips = []
                 if include_floating_ips:
-                    floating_ips = self.get_floating_ips_by_fixed_address(
+                    floating_addrs = self.get_floating_ips_by_fixed_address(
                             context, fixed_addr)
+                    for floating_addr in floating_addrs:
+                        floating_ips.append(dict(address=floating_addr))
+                ip_dict = dict(address=fixed_addr,
+                        floating_ips=floating_ips)
                 network_dict['fixed_ips'].append(ip_dict)
             yield network_id_table.values()
         raise StopIteration

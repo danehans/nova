@@ -43,18 +43,20 @@ class ViewBuilder(object):
         self.addresses_builder = addresses_builder
         self.network_api = network.API()
 
-    def build(self, inst, ip_addr_info=None, is_detail=False):
+    def build(self, inst, ip_info=None, is_detail=False):
         """Return a dict that represenst a server."""
         if inst.get('_is_precooked', False):
             server = dict(server=inst)
+            return server
+        if is_detail:
+            if ip_info is None:
+                ip_infos = self.network_api.get_ip_info_for_instances(
+                        self.context, [inst], include_floating_ips=True)
+                ip_info = ip_infos.next()
+            server = self._build_detail(inst, ip_info)
         else:
-            if is_detail:
-                server = self._build_detail(inst, ip_addr_info)
-            else:
-                server = self._build_simple(inst)
-
-            self._build_extra(server['server'], inst)
-
+            server = self._build_simple(inst)
+        self._build_extra(server['server'], inst)
         return server
 
     def build_list(self, server_objs, is_detail=False, **kwargs):
@@ -62,12 +64,12 @@ class ViewBuilder(object):
         servers = []
 
         if is_detail:
-            ip_addr_infos = self.network_api.get_ip_info_for_instances(
+            ip_infos = self.network_api.get_ip_info_for_instances(
                     self.context, server_objs, include_floating_ips=True)
             for server_obj in server_objs:
-                ip_addr_info = ip_addr_infos.next()
+                ip_info = ip_infos.next()
                 servers.append(self.build(server_obj,
-                        ip_addr_info=ip_addr_info,
+                        ip_info=ip_info,
                         is_detail=is_detail)['server'])
         else:
             for server_obj in server_objs:
@@ -80,7 +82,7 @@ class ViewBuilder(object):
         """Return a simple model of a server."""
         return dict(server=dict(id=inst['id'], name=inst['display_name']))
 
-    def _build_detail(self, inst, ip_addr_info):
+    def _build_detail(self, inst, ip_info):
         """Returns a detailed model of a server."""
         vm_state = inst.get('vm_state', vm_states.BUILDING)
         task_state = inst.get('task_state')
@@ -104,13 +106,13 @@ class ViewBuilder(object):
 
         self._build_image(inst_dict, inst)
         self._build_flavor(inst_dict, inst)
-        self._build_addresses(inst_dict, ip_addr_info)
+        self._build_addresses(inst_dict, ip_info)
 
         return dict(server=inst_dict)
 
-    def _build_addresses(self, response, ip_addr_info):
+    def _build_addresses(self, response, ip_info):
         """Return the addresses sub-resource of a server."""
-        response['addresses'] = self.addresses_builder.build(ip_addr_info)
+        response['addresses'] = self.addresses_builder.build(ip_info)
 
     def _build_image(self, response, inst):
         """Return the image sub-resource of a server."""
@@ -152,9 +154,9 @@ class ViewBuilderV11(ViewBuilder):
         self.base_url = base_url
         self.project_id = project_id
 
-    def _build_detail(self, inst, ip_addr_info):
+    def _build_detail(self, inst, ip_info):
         response = super(ViewBuilderV11, self)._build_detail(inst,
-                ip_addr_info)
+                ip_info)
         response['server']['created'] = utils.isotime(inst['created_at'])
         response['server']['updated'] = utils.isotime(inst['updated_at'])
 
@@ -227,12 +229,12 @@ class ViewBuilderV11(ViewBuilder):
         servers_links = []
 
         if is_detail:
-            ip_addr_infos = self.network_api.get_ip_info_for_instances(
+            ip_infos = self.network_api.get_ip_info_for_instances(
                     self.context, server_objs, include_floating_ips=True)
             for server_obj in server_objs:
-                ip_addr_info = ip_addr_infos.next()
+                ip_info = ip_infos.next()
                 servers.append(self.build(server_obj,
-                        ip_addr_info=ip_addr_info,
+                        ip_info=ip_info,
                         is_detail=is_detail)['server'])
         else:
             for server_obj in server_objs:
