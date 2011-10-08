@@ -18,6 +18,8 @@
 
 """Handles all requests relating to instances (guest vms)."""
 
+import itertools
+
 from nova.db import base
 from nova import exception
 from nova import flags
@@ -225,6 +227,28 @@ class API(base.Base):
             if err.exc_type == 'InstanceNotFound':
                 raise exception.InstanceNotFound(instance_id=instance['id'])
             raise
+
+    def get_ip_info_for_instances(self, context, instances,
+            include_floating_ips=None):
+        """Return IP information for a list of instances.
+        This chunks requests into multiple RPC multicalls in an efficient
+        manner, so RPC message sizes aren't too large.  rpc.multicall is
+        used which returns a generator.  We also return a generator so
+        results can be retrieved after the first multicall.
+        """
+        chunk_size = 20
+        num_loops = int((len(instances) + chunk_size - 1) / chunk_size)
+        instance_ids = (instance['id'] for instance in instances)
+        for i in xrange(num_loops):
+            islice = itertools.islice(instance_ids, 0, chunk_size)
+            args = {'instance_ids': islice}
+            if include_floating_ips is not None:
+                args['include_floating_ips'] = include_floating_ips
+            ip_infos = rpc.call(context, FLAGS.network_topic,
+                {"method": "get_ip_info_for_instances", 'args': args})
+            for ip_info in ip_infos:
+                yield ip_info
+        raise StopIteration
 
     def validate_networks(self, context, requested_networks):
         """validate the networks passed at the time of creating
