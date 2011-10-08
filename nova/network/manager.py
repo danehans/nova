@@ -628,10 +628,10 @@ class NetworkManager(manager.SchedulerDependentManager):
          }
         ]
 
-        The return value is generator that will yield a list like above
-        for every instance_id requested.  This allows us to use
-        rpc.multicall
+        The return value is a list with an entry for each instance
+        described as above.
         """
+        ret_val = []
         for instance_id in instance_ids:
             try:
                 fixed_ips = self.db.fixed_ip_get_by_instance(context,
@@ -648,7 +648,7 @@ class NetworkManager(manager.SchedulerDependentManager):
                         instance_id)
                 # The call needs to return an entry for each instance ID,
                 # even if it doesn't exist.
-                yield []
+                ret_val.append([])
                 continue
 
             network_id_table = {}
@@ -669,7 +669,7 @@ class NetworkManager(manager.SchedulerDependentManager):
                 if FLAGS.use_ipv6 and network['cidr_v6']:
                     ip6 = ipv6.to_global(network['cidr_v6'],
                                          vif['address'],
-                                         network['project_id']),
+                                         network['project_id'])
                     entry['fixed_ip6s'].append(dict(address=ip6))
 
             for fixed_ip in fixed_ips:
@@ -688,8 +688,8 @@ class NetworkManager(manager.SchedulerDependentManager):
                 ip_dict = dict(address=fixed_addr,
                         floating_ips=floating_ips)
                 network_dict['fixed_ips'].append(ip_dict)
-            yield network_id_table.values()
-        raise StopIteration
+            ret_val.append(network_id_table.values())
+        return ret_val
 
     def _allocate_mac_addresses(self, context, instance_id, networks):
         """Generates mac addresses and creates vif rows in db for them."""
