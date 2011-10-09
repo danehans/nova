@@ -22,4 +22,3 @@ To laugh at its PEP8 problems: http://hudson.openstack.org/job/nova-pep8/violati
 
 To cry over its pylint problems: http://hudson.openstack.org/job/nova-pylint/violations
 
-
