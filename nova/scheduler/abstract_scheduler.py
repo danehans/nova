@@ -259,10 +259,11 @@ class AbstractScheduler(driver.Scheduler):
             raise NotImplementedError(msg)
 
         # Get all available hosts.
-        all_hosts = self.zone_manager.service_states.iteritems()
-        unfiltered_hosts = [(host, services[topic])
-                for host, services in all_hosts
-                if topic in services]
+        #all_hosts = self.zone_manager.service_states.iteritems()
+        #unfiltered_hosts = [(host, services[topic])
+        #        for host, services in all_hosts
+        #        if topic in services]
+        unfiltered_hosts = self.get_unfiltered_hosts()
 
         # Filter local hosts based on requirements ...
         filtered_hosts = self.filter_hosts(topic, request_spec,
@@ -289,6 +290,11 @@ class AbstractScheduler(driver.Scheduler):
                 weighted_hosts.append(host_dict)
         weighted_hosts.sort(key=operator.itemgetter('weight'))
         return weighted_hosts
+
+    def get_unfiltered_hosts(self):
+        """Compute the available RAM and disk on a compute node purely
+        from the database definitions of ComputeNode, Instance and
+        InstanceType ... bypassing what is reported from the node itself."""
 
     def filter_hosts(self, topic, request_spec, host_list):
         """Filter the full host list returned from the ZoneManager. By default,
