@@ -170,6 +170,19 @@ def fake_zone_get_all(context):
     ]
 
 
+def fake_get_unfiltered_hosts(context):
+    return [
+        ('host1', dict(free_disk_gb=1028, free_ram_mb=1028)),
+        ('host2', dict(free_disk_gb=2048, free_ram_mb=2048)),
+        ('host3', dict(free_disk_gb=4096, free_ram_mb=4096)),
+        ('host4', dict(free_disk_gb=8192, free_ram_mb=8192)),
+    ]
+
+
+def fake_get_unfiltered_hosts_empty(context):
+    return []
+
+
 class AbstractSchedulerTestCase(test.TestCase):
     """Test case for Abstract Scheduler."""
 
@@ -180,10 +193,11 @@ class AbstractSchedulerTestCase(test.TestCase):
         """
         sched = FakeAbstractScheduler()
         self.stubs.Set(sched, '_call_zone_method', fake_call_zone_method)
+        self.stubs.Set(sched, 'get_unfiltered_hosts', fake_get_unfiltered_hosts)
         self.stubs.Set(nova.db, 'zone_get_all', fake_zone_get_all)
 
-        zm = FakeZoneManager()
-        sched.set_zone_manager(zm)
+        # zm = FakeZoneManager()
+        # sched.set_zone_manager(zm)
 
         fake_context = context.RequestContext('user', 'project')
         build_plan = sched.select(fake_context,
@@ -191,6 +205,7 @@ class AbstractSchedulerTestCase(test.TestCase):
                     'num_instances': 4})
 
         # 4 from local zones, 12 from remotes
+        print build_plan
         self.assertEqual(16, len(build_plan))
 
         hostnames = [plan_item['hostname']
@@ -224,10 +239,11 @@ class AbstractSchedulerTestCase(test.TestCase):
         """
         sched = FakeAbstractScheduler()
         self.stubs.Set(sched, '_call_zone_method', fake_empty_call_zone_method)
+        self.stubs.Set(sched, 'get_unfiltered_hosts', fake_get_unfiltered_hosts_empty)
         self.stubs.Set(nova.db, 'zone_get_all', fake_zone_get_all)
 
-        zm = FakeEmptyZoneManager()
-        sched.set_zone_manager(zm)
+        # zm = FakeEmptyZoneManager()
+        # sched.set_zone_manager(zm)
 
         fake_context = context.RequestContext('user', 'project')
         request_spec = {}
@@ -413,10 +429,11 @@ class AbstractSchedulerTestCase(test.TestCase):
         self.stubs.Set(driver, 'cast_to_compute_host',
                        fake_cast_to_compute_host)
         self.stubs.Set(sched, '_call_zone_method', fake_call_zone_method)
+        self.stubs.Set(sched, 'get_unfiltered_hosts', fake_get_unfiltered_hosts)
         self.stubs.Set(nova.db, 'zone_get_all', fake_zone_get_all_zero)
 
-        zm = FakeZoneManager()
-        sched.set_zone_manager(zm)
+        # zm = FakeZoneManager()
+        # sched.set_zone_manager(zm)
 
         fake_context = context.RequestContext('user', 'project')
 
