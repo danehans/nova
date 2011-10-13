@@ -55,6 +55,7 @@ INSTANCE = {
              "security_groups": [{"id": 1, "name": "test"}],
              "progress": 0,
              "image_ref": 'http://foo.com/123',
+             "fixed_ips": [],
              "instance_type": {"flavorid": '124'},
         }
 
@@ -127,6 +128,7 @@ class CreateserverextTest(test.TestCase):
                          'project_id': 'fake',
                          'created_at': "",
                          'updated_at': "",
+                         'fixed_ips': [],
                          'progress': 0}], resv_id)
 
             def set_admin_password(self, *args, **kwargs):
