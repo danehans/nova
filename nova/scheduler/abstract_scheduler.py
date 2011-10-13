@@ -269,6 +269,7 @@ class AbstractScheduler(driver.Scheduler):
         # weighted_hosts = [{weight=weight, hostname=hostname,
         #         capabilities=capabs}, ...]
         weighted_hosts = self.weigh_hosts(request_spec, filtered_hosts)
+
         # Next, tack on the host weights from the child zones
         json_spec = json.dumps(request_spec)
         all_zones = db.zone_get_all(elevated)
@@ -325,8 +326,9 @@ class AbstractScheduler(driver.Scheduler):
         def basic_ram_filter(hostname, capabilities, request_spec):
             """Only return hosts with sufficient available RAM."""
             instance_type = request_spec['instance_type']
-            requested_mem = instance_type['memory_mb']
-            return capabilities['free_ram_mb'] >= requested_mem
+            requested_ram = instance_type['memory_mb']
+            free_ram = capabilities['free_ram_mb']
+            return capabilities['free_ram_mb'] >= requested_ram
 
         return [(host, services) for host, services in host_list
                 if basic_ram_filter(host, services, request_spec)]
