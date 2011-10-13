@@ -1287,6 +1287,8 @@ def instance_get_all_by_filters(context, filters):
 
     session = get_session()
     query_prefix = session.query(models.Instance).\
+                   options(joinedload_all('fixed_ips.floating_ips')).\
+                   options(joinedload_all('fixed_ips.network')).\
                    options(joinedload('security_groups')).\
                    options(joinedload('metadata')).\
                    options(joinedload('instance_type')).\
