@@ -259,12 +259,6 @@ class AbstractScheduler(driver.Scheduler):
             raise NotImplementedError(msg)
 
         elevated = context.elevated()
-
-        # Get all available hosts.
-        #all_hosts = self.zone_manager.service_states.iteritems()
-        #unfiltered_hosts = [(host, services[topic])
-        #        for host, services in all_hosts
-        #        if topic in services]
         unfiltered_hosts = self.get_unfiltered_hosts(elevated)
 
         # Filter local hosts based on requirements ...

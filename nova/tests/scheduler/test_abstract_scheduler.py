@@ -197,9 +197,6 @@ class AbstractSchedulerTestCase(test.TestCase):
                                         fake_get_unfiltered_hosts)
         self.stubs.Set(nova.db, 'zone_get_all', fake_zone_get_all)
 
-        # zm = FakeZoneManager()
-        # sched.set_zone_manager(zm)
-
         fake_context = context.RequestContext('user', 'project')
         build_plan = sched.select(fake_context,
                 {'instance_type': {'memory_mb': 512},
@@ -242,9 +239,6 @@ class AbstractSchedulerTestCase(test.TestCase):
         self.stubs.Set(sched, 'get_unfiltered_hosts',
                               fake_get_unfiltered_hosts_empty)
         self.stubs.Set(nova.db, 'zone_get_all', fake_zone_get_all)
-
-        # zm = FakeEmptyZoneManager()
-        # sched.set_zone_manager(zm)
 
         fake_context = context.RequestContext('user', 'project')
         request_spec = {}
@@ -433,9 +427,6 @@ class AbstractSchedulerTestCase(test.TestCase):
         self.stubs.Set(sched, 'get_unfiltered_hosts',
                               fake_get_unfiltered_hosts)
         self.stubs.Set(nova.db, 'zone_get_all', fake_zone_get_all_zero)
-
-        # zm = FakeZoneManager()
-        # sched.set_zone_manager(zm)
 
         fake_context = context.RequestContext('user', 'project')
 
