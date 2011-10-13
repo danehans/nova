@@ -258,12 +258,14 @@ class AbstractScheduler(driver.Scheduler):
             msg = _("Scheduler only understands Compute nodes (for now)")
             raise NotImplementedError(msg)
 
+        elevated = context.elevated()
+
         # Get all available hosts.
         #all_hosts = self.zone_manager.service_states.iteritems()
         #unfiltered_hosts = [(host, services[topic])
         #        for host, services in all_hosts
         #        if topic in services]
-        unfiltered_hosts = self.get_unfiltered_hosts()
+        unfiltered_hosts = self.get_unfiltered_hosts(elevated)
 
         # Filter local hosts based on requirements ...
         filtered_hosts = self.filter_hosts(topic, request_spec,
@@ -275,7 +277,7 @@ class AbstractScheduler(driver.Scheduler):
         weighted_hosts = self.weigh_hosts(topic, request_spec, filtered_hosts)
         # Next, tack on the host weights from the child zones
         json_spec = json.dumps(request_spec)
-        all_zones = db.zone_get_all(context.elevated())
+        all_zones = db.zone_get_all(elevated)
         child_results = self._call_zone_method(context, "select",
                 specs=json_spec, zones=all_zones)
         self._adjust_child_weights(child_results, all_zones)
@@ -291,10 +293,33 @@ class AbstractScheduler(driver.Scheduler):
         weighted_hosts.sort(key=operator.itemgetter('weight'))
         return weighted_hosts
 
-    def get_unfiltered_hosts(self):
+    def get_unfiltered_hosts(self, context):
         """Compute the available RAM and disk on a compute node purely
-        from the database definitions of ComputeNode, Instance and
-        InstanceType ... bypassing what is reported from the node itself."""
+        from the database definitions of ComputeNode, Instance. InstanceType
+        isn't required since a copy is stored with the instance (in case the
+        InstanceType changed since the instance was created)."""
+
+        # Make a compute node dict with the bare essential metrics.
+        compute_nodes = db.compute_node_get_all(context)
+        compute_map = {}
+        for compute in compute_nodes:
+            free_disk = compute['local_gb'] - compute['local_gb_used']
+            free_ram = compute['memory_mb'] - compute['memory_mb_used']
+            host = compute['service']['host']
+
+            compute_map[host] = dict(free_disk_gb=free_disk,
+                                     free_ram_mb=free_ram)
+
+        # "Consume" resources from the host the instance resides on.
+        instances = db.instance_get_all(context)
+        for instance in instances:
+            disk = instance['local_gb']
+            ram = instance['memory_mb']
+            compute = compute_map[instance['host']]
+            compute['free_disk_gb'] -= disk
+            compute['free_ram_mb'] -= ram
+
+        return compute_map.items()
 
     def filter_hosts(self, topic, request_spec, host_list):
         """Filter the full host list returned from the ZoneManager. By default,
