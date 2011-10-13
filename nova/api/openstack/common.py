@@ -291,6 +291,7 @@ def get_networks_for_instance(context, instance):
     networks = {}
     fixed_ips = instance['fixed_ips']
     for fixed_ip in fixed_ips:
+        fixed_addr = fixed_ip['address']
         network = fixed_ip['network']
         if not network:
             continue

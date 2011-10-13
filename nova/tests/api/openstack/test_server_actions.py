@@ -94,10 +94,12 @@ def stub_instance(id, metadata=None, image_ref="10", flavor_id="1",
         "progress": 0,
     }
 
-    instance["fixed_ips"] = {
-        "address": '192.168.0.1',
-        "floating_ips": [],
-    }
+    instance["fixed_ips"] = [{"address": '192.168.0.1',
+                              "network":
+                                      {'label': 'public', 'cidr_v6': None},
+                              "virtual_interface":
+                                      {'address': 'aa:aa:aa:aa:aa:aa'},
+                              "floating_ips": []}]
 
     return instance
 
