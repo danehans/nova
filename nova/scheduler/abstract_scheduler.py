@@ -332,7 +332,6 @@ class AbstractScheduler(driver.Scheduler):
             """Only return hosts with sufficient available RAM."""
             instance_type = request_spec['instance_type']
             requested_mem = instance_type['memory_mb']
-            print "REQUESTED %s, FREE %s" % (requested_mem, capabilities['free_ram_mb'])
             return capabilities['free_ram_mb'] >= requested_mem
 
         return [(host, services) for host, services in host_list

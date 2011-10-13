@@ -193,7 +193,8 @@ class AbstractSchedulerTestCase(test.TestCase):
         """
         sched = FakeAbstractScheduler()
         self.stubs.Set(sched, '_call_zone_method', fake_call_zone_method)
-        self.stubs.Set(sched, 'get_unfiltered_hosts', fake_get_unfiltered_hosts)
+        self.stubs.Set(sched, 'get_unfiltered_hosts',
+                                        fake_get_unfiltered_hosts)
         self.stubs.Set(nova.db, 'zone_get_all', fake_zone_get_all)
 
         # zm = FakeZoneManager()
@@ -205,7 +206,6 @@ class AbstractSchedulerTestCase(test.TestCase):
                     'num_instances': 4})
 
         # 4 from local zones, 12 from remotes
-        print build_plan
         self.assertEqual(16, len(build_plan))
 
         hostnames = [plan_item['hostname']
@@ -239,7 +239,8 @@ class AbstractSchedulerTestCase(test.TestCase):
         """
         sched = FakeAbstractScheduler()
         self.stubs.Set(sched, '_call_zone_method', fake_empty_call_zone_method)
-        self.stubs.Set(sched, 'get_unfiltered_hosts', fake_get_unfiltered_hosts_empty)
+        self.stubs.Set(sched, 'get_unfiltered_hosts',
+                              fake_get_unfiltered_hosts_empty)
         self.stubs.Set(nova.db, 'zone_get_all', fake_zone_get_all)
 
         # zm = FakeEmptyZoneManager()
@@ -429,7 +430,8 @@ class AbstractSchedulerTestCase(test.TestCase):
         self.stubs.Set(driver, 'cast_to_compute_host',
                        fake_cast_to_compute_host)
         self.stubs.Set(sched, '_call_zone_method', fake_call_zone_method)
-        self.stubs.Set(sched, 'get_unfiltered_hosts', fake_get_unfiltered_hosts)
+        self.stubs.Set(sched, 'get_unfiltered_hosts',
+                              fake_get_unfiltered_hosts)
         self.stubs.Set(nova.db, 'zone_get_all', fake_zone_get_all_zero)
 
         # zm = FakeZoneManager()
