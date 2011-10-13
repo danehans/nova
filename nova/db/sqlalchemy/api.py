@@ -1173,6 +1173,11 @@ def instance_destroy(context, instance_id):
                 update({'deleted': True,
                         'deleted_at': utils.utcnow(),
                         'updated_at': literal_column('updated_at')})
+        session.query(models.BlockDeviceMapping).\
+                filter_by(instance_id=instance_id).\
+                update({'deleted': True,
+                        'deleted_at': utils.utcnow(),
+                        'updated_at': literal_column('updated_at')})
 
 
 @require_context
@@ -2012,28 +2017,6 @@ def queue_get_for(_context, topic, physical_node_id):
 
 
 @require_admin_context
-def export_device_count(context):
-    session = get_session()
-    return session.query(models.ExportDevice).\
-                   filter_by(deleted=can_read_deleted(context)).\
-                   count()
-
-
-@require_admin_context
-def export_device_create_safe(context, values):
-    export_device_ref = models.ExportDevice()
-    export_device_ref.update(values)
-    try:
-        export_device_ref.save()
-        return export_device_ref
-    except IntegrityError:
-        return None
-
-
-###################
-
-
-@require_admin_context
 def iscsi_target_count_by_host(context, host):
     session = get_session()
     return session.query(models.IscsiTarget).\
@@ -2169,24 +2152,6 @@ def quota_destroy_all_by_project(context, project_id):
 
 
 @require_admin_context
-def volume_allocate_shelf_and_blade(context, volume_id):
-    session = get_session()
-    with session.begin():
-        export_device = session.query(models.ExportDevice).\
-                                filter_by(volume=None).\
-                                filter_by(deleted=False).\
-                                with_lockmode('update').\
-                                first()
-        # NOTE(vish): if with_lockmode isn't supported, as in sqlite,
-        #             then this has concurrency issues
-        if not export_device:
-            raise db.NoMoreBlades()
-        export_device.volume_id = volume_id
-        session.add(export_device)
-    return (export_device.shelf_id, export_device.blade_id)
-
-
-@require_admin_context
 def volume_allocate_iscsi_target(context, volume_id, host):
     session = get_session()
     with session.begin():
@@ -2252,9 +2217,6 @@ def volume_destroy(context, volume_id):
                 update({'deleted': True,
                         'deleted_at': utils.utcnow(),
                         'updated_at': literal_column('updated_at')})
-        session.query(models.ExportDevice).\
-                filter_by(volume_id=volume_id).\
-                update({'volume_id': None})
         session.query(models.IscsiTarget).\
                 filter_by(volume_id=volume_id).\
                 update({'volume_id': None})
@@ -2371,18 +2333,6 @@ def volume_get_instance(context, volume_id):
         raise exception.VolumeNotFound(volume_id=volume_id)
 
     return result.instance
-
-
-@require_admin_context
-def volume_get_shelf_and_blade(context, volume_id):
-    session = get_session()
-    result = session.query(models.ExportDevice).\
-                     filter_by(volume_id=volume_id).\
-                     first()
-    if not result:
-        raise exception.ExportDeviceNotFoundForVolume(volume_id=volume_id)
-
-    return (result.shelf_id, result.blade_id)
 
 
 @require_admin_context
@@ -2841,14 +2791,13 @@ def security_group_rule_get_by_security_group(context, security_group_id,
         result = session.query(models.SecurityGroupIngressRule).\
                          filter_by(deleted=can_read_deleted(context)).\
                          filter_by(parent_group_id=security_group_id).\
-                         options(joinedload_all('grantee_group')).\
+                         options(joinedload_all('grantee_group.instances')).\
                          all()
     else:
-        # TODO(vish): Join to group and check for project_id
         result = session.query(models.SecurityGroupIngressRule).\
                          filter_by(deleted=False).\
                          filter_by(parent_group_id=security_group_id).\
-                         options(joinedload_all('grantee_group')).\
+                         options(joinedload_all('grantee_group.instances')).\
                          all()
     return result
 

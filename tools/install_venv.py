@@ -44,7 +44,7 @@ def check_python_version():
         die("Need Python Version >= 2.6")
 
 
-def run_command(cmd, redirect_output=True, check_exit_code=True):
+def run_command_with_code(cmd, redirect_output=True, check_exit_code=True):
     """
     Runs a command in an out-of-process shell, returning the
     output of that command.  Working directory is ROOT.
@@ -58,30 +58,74 @@ def run_command(cmd, redirect_output=True, check_exit_code=True):
     output = proc.communicate()[0]
     if check_exit_code and proc.returncode != 0:
         die('Command "%s" failed.\n%s', ' '.join(cmd), output)
-    return output
+    return (output, proc.returncode)
 
 
-HAS_EASY_INSTALL = bool(run_command(['which', 'easy_install'],
-                    check_exit_code=False).strip())
-HAS_VIRTUALENV = bool(run_command(['which', 'virtualenv'],
-                    check_exit_code=False).strip())
+def run_command(cmd, redirect_output=True, check_exit_code=True):
+    return run_command_with_code(cmd, redirect_output, check_exit_code)[0]
+
+
+class Distro(object):
+
+    def check_cmd(self, cmd):
+        return bool(run_command(['which', cmd], check_exit_code=False).strip())
+
+    def install_virtualenv(self):
+        if self.check_cmd('virtualenv'):
+            return
+
+        if self.check_cmd('easy_install'):
+            print 'Installing virtualenv via easy_install...',
+            if run_command(['easy_install', 'virtualenv']):
+                print 'Succeeded'
+                return
+            else:
+                print 'Failed'
+
+        die('ERROR: virtualenv not found.\n\nNova development'
+            ' requires virtualenv, please install it using your'
+            ' favorite package management tool')
+
+    def install_m2crypto(self):
+        pip_install('M2Crypto')
+
+
+class Fedora(Distro):
+
+    def check_pkg(self, pkg):
+        return run_command_with_code(['rpm', '-q', pkg],
+                                     check_exit_code=False)[1] == 0
+
+    def yum_install(self, pkg, **kwargs):
+        run_command(['sudo', 'yum', 'install', '-y', pkg], **kwargs)
+
+    def install_virtualenv(self):
+        if self.check_cmd('virtualenv'):
+            return
+
+        if not self.check_pkg('python-virtualenv'):
+            self.yum_install('python-virtualenv', check_exit_code=False)
+
+        super(Fedora, self).install_virtualenv()
+
+    #
+    # pip install M2Crypto fails on Fedora because of
+    # weird differences with OpenSSL headers
+    #
+    def install_m2crypto(self):
+        if not self.check_pkg('m2crypto'):
+            self.yum_install('m2crypto')
+
+
+def get_distro():
+    if os.path.exists('/etc/fedora-release'):
+        return Fedora()
+    else:
+        return Distro()
 
 
 def check_dependencies():
-    """Make sure virtualenv is in the path."""
-
-    if not HAS_VIRTUALENV:
-        print 'not found.'
-        # Try installing it via easy_install...
-        if HAS_EASY_INSTALL:
-            print 'Installing virtualenv via easy_install...',
-            if not (run_command(['which', 'easy_install']) and
-                    run_command(['easy_install', 'virtualenv'])):
-                die('ERROR: virtualenv not found.\n\nNova development'
-                    ' requires virtualenv, please install it using your'
-                    ' favorite package management tool')
-            print 'done.'
-    print 'done.'
+    get_distro().install_virtualenv()
 
 
 def create_virtualenv(venv=VENV):
@@ -89,7 +133,7 @@ def create_virtualenv(venv=VENV):
     virtual environment
     """
     print 'Creating venv...',
-    run_command(['virtualenv', '-q', '--no-site-packages', VENV])
+    run_command(['virtualenv', '-q', VENV])
     print 'done.'
     print 'Installing pip in virtualenv...',
     if not run_command(['tools/with_venv.sh', 'easy_install', 'pip']).strip():
@@ -97,14 +141,22 @@ def create_virtualenv(venv=VENV):
     print 'done.'
 
 
+def pip_install(*args):
+    run_command(['tools/with_venv.sh',
+                 'pip', 'install', '--upgrade'] + list(args),
+                redirect_output=False)
+
+
 def install_dependencies(venv=VENV):
     print 'Installing dependencies with pip (this can take a while)...'
+
     # Install greenlet by hand - just listing it in the requires file does not
     # get it in stalled in the right order
-    run_command(['tools/with_venv.sh', 'pip', 'install', '-E', venv,
-              'greenlet'], redirect_output=False)
-    run_command(['tools/with_venv.sh', 'pip', 'install', '-E', venv, '-r',
-              PIP_REQUIRES], redirect_output=False)
+    pip_install('greenlet')
+
+    pip_install('-r', PIP_REQUIRES)
+
+    get_distro().install_m2crypto()
 
     # Tell the virtual env how to "import nova"
     pthfile = os.path.join(venv, "lib", PY_VERSION, "site-packages",

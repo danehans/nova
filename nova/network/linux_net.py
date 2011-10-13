@@ -381,6 +381,17 @@ def metadata_forward():
     iptables_manager.apply()
 
 
+def metadata_accept():
+    """Create the filter accept rule for metadata."""
+    iptables_manager.ipv4['filter'].add_rule('INPUT',
+                                             '-s 0.0.0.0/0 -d %s '
+                                             '-p tcp -m tcp --dport %s '
+                                             '-j ACCEPT' % \
+                                             (FLAGS.ec2_dmz_host,
+                                              FLAGS.ec2_port))
+    iptables_manager.apply()
+
+
 def init_host():
     """Basic networking setup goes here."""
     # NOTE(devcamcar): Cloud public SNAT entries and the default
@@ -403,7 +414,7 @@ def init_host():
 
 def bind_floating_ip(floating_ip, check_exit_code=True):
     """Bind ip to public interface."""
-    _execute('ip', 'addr', 'add', floating_ip,
+    _execute('ip', 'addr', 'add', str(floating_ip) + '/32',
              'dev', FLAGS.public_interface,
              run_as_root=True, check_exit_code=check_exit_code)
     if FLAGS.send_arp_for_ha:
@@ -414,7 +425,7 @@ def bind_floating_ip(floating_ip, check_exit_code=True):
 
 def unbind_floating_ip(floating_ip):
     """Unbind a public ip from public interface."""
-    _execute('ip', 'addr', 'del', floating_ip,
+    _execute('ip', 'addr', 'del', str(floating_ip) + '/32',
              'dev', FLAGS.public_interface, run_as_root=True)
 
 
@@ -793,8 +804,11 @@ def _dnsmasq_pid_for(dev):
     pid_file = _dhcp_file(dev, 'pid')
 
     if os.path.exists(pid_file):
-        with open(pid_file, 'r') as f:
-            return int(f.read())
+        try:
+            with open(pid_file, 'r') as f:
+                return int(f.read())
+        except (ValueError, IOError):
+            return None
 
 
 def _ra_pid_for(dev):
