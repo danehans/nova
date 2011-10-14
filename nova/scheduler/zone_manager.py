@@ -135,6 +135,38 @@ class ZoneManager(object):
                 ret.append({"service": svc, "host_name": host})
         return ret
 
+    def get_host_list_from_db(self, context):
+        """Returns [ (host, {service : capabilities}), ... ]
+        and computes the available RAM and disk on a compute node purely
+        from the database definitions of ComputeNode, Instance.
+        'capabilities' will at least be: 'free_disk_gb' and 'free_ram_mb'.
+        Note: this can be very slow with a lot of instances.
+        InstanceType table isn't required since a copy is stored
+        with the instance (in case the InstanceType changed since the
+        instance was created)."""
+
+        # Make a compute node dict with the bare essential metrics.
+        compute_nodes = db.compute_node_get_all(context)
+        compute_map = {}
+        for compute in compute_nodes:
+            free_disk = compute['local_gb'] - compute['local_gb_used']
+            free_ram = compute['memory_mb'] - compute['memory_mb_used']
+            host = compute['service']['host']
+
+            compute_map[host] = dict(free_disk_gb=free_disk,
+                                     free_ram_mb=free_ram)
+
+        # "Consume" resources from the host the instance resides on.
+        instances = db.instance_get_all(context)
+        for instance in instances:
+            disk = instance['local_gb']
+            ram = instance['memory_mb']
+            compute = compute_map[instance['host']]
+            compute['free_disk_gb'] -= disk
+            compute['free_ram_mb'] -= ram
+
+        return compute_map.items()
+
     def get_zone_capabilities(self, context):
         """Roll up all the individual host info to generic 'service'
            capabilities. Each capability is aggregated into

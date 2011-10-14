@@ -89,10 +89,21 @@ class FakeZoneManager(zone_manager.ZoneManager):
             },
         }
 
+    def get_host_list_from_db(self, context):
+        return [
+            ('host1', dict(free_disk_gb=1028, free_ram_mb=1028)),
+            ('host2', dict(free_disk_gb=2048, free_ram_mb=2048)),
+            ('host3', dict(free_disk_gb=4096, free_ram_mb=4096)),
+            ('host4', dict(free_disk_gb=8192, free_ram_mb=8192)),
+        ]
+
 
 class FakeEmptyZoneManager(zone_manager.ZoneManager):
     def __init__(self):
         self.service_states = {}
+
+    def get_host_list_from_db(self, context):
+        return []
 
 
 def fake_empty_call_zone_method(context, method, specs, zones):
@@ -170,19 +181,6 @@ def fake_zone_get_all(context):
     ]
 
 
-def fake_get_unfiltered_hosts(context):
-    return [
-        ('host1', dict(free_disk_gb=1028, free_ram_mb=1028)),
-        ('host2', dict(free_disk_gb=2048, free_ram_mb=2048)),
-        ('host3', dict(free_disk_gb=4096, free_ram_mb=4096)),
-        ('host4', dict(free_disk_gb=8192, free_ram_mb=8192)),
-    ]
-
-
-def fake_get_unfiltered_hosts_empty(context):
-    return []
-
-
 class AbstractSchedulerTestCase(test.TestCase):
     """Test case for Abstract Scheduler."""
 
@@ -193,9 +191,10 @@ class AbstractSchedulerTestCase(test.TestCase):
         """
         sched = FakeAbstractScheduler()
         self.stubs.Set(sched, '_call_zone_method', fake_call_zone_method)
-        self.stubs.Set(sched, 'get_unfiltered_hosts',
-                                        fake_get_unfiltered_hosts)
         self.stubs.Set(nova.db, 'zone_get_all', fake_zone_get_all)
+
+        zm = FakeZoneManager()
+        sched.zone_manager = zm
 
         fake_context = context.RequestContext('user', 'project')
         build_plan = sched.select(fake_context,
@@ -236,9 +235,10 @@ class AbstractSchedulerTestCase(test.TestCase):
         """
         sched = FakeAbstractScheduler()
         self.stubs.Set(sched, '_call_zone_method', fake_empty_call_zone_method)
-        self.stubs.Set(sched, 'get_unfiltered_hosts',
-                              fake_get_unfiltered_hosts_empty)
         self.stubs.Set(nova.db, 'zone_get_all', fake_zone_get_all)
+
+        zm = FakeEmptyZoneManager()
+        sched.zone_manager = zm
 
         fake_context = context.RequestContext('user', 'project')
         request_spec = {}
@@ -394,9 +394,7 @@ class AbstractSchedulerTestCase(test.TestCase):
         self.stubs.Set(sched, '_call_zone_method', fake_call_zone_method)
         self.stubs.Set(nova.db, 'zone_get_all', fake_zone_get_all)
 
-        zm = FakeZoneManager()
-        # patch this to have no local hosts
-        zm.service_states = {}
+        zm = FakeEmptyZoneManager()
         sched.set_zone_manager(zm)
 
         fake_context = context.RequestContext('user', 'project')
@@ -424,9 +422,10 @@ class AbstractSchedulerTestCase(test.TestCase):
         self.stubs.Set(driver, 'cast_to_compute_host',
                        fake_cast_to_compute_host)
         self.stubs.Set(sched, '_call_zone_method', fake_call_zone_method)
-        self.stubs.Set(sched, 'get_unfiltered_hosts',
-                              fake_get_unfiltered_hosts)
         self.stubs.Set(nova.db, 'zone_get_all', fake_zone_get_all_zero)
+
+        zm = FakeZoneManager()
+        sched.zone_manager = zm
 
         fake_context = context.RequestContext('user', 'project')
 
