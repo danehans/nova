@@ -135,6 +135,17 @@ class ZoneManager(object):
                 ret.append({"service": svc, "host_name": host})
         return ret
 
+    def consume_resources(self, capabilities, disk_gb, ram_mb):
+        """Virtually consume some resources from a capabilities dict.
+        This will alter the source dict in-place, so be sure you've
+        already created a copy if that isn't desired."""
+
+        if 'free_disk_gb' in capabilities:
+            capabilities['free_disk_gb'] -= disk_gb
+
+        if 'free_ram_mb' in capabilities:
+            capabilities['free_ram_mb'] -= ram_mb
+
     def get_host_list_from_db(self, context):
         """Returns [ (host, {service : capabilities}), ... ]
         and computes the available RAM and disk on a compute node purely
@@ -149,12 +160,12 @@ class ZoneManager(object):
         compute_nodes = db.compute_node_get_all(context)
         compute_map = {}
         for compute in compute_nodes:
-            free_disk = compute['local_gb'] - compute['local_gb_used']
-            free_ram = compute['memory_mb'] - compute['memory_mb_used']
+            all_disk = compute['local_gb']
+            all_ram = compute['memory_mb']
             host = compute['service']['host']
 
-            compute_map[host] = dict(free_disk_gb=free_disk,
-                                     free_ram_mb=free_ram)
+            compute_map[host] = dict(free_disk_gb=all_disk,
+                                     free_ram_mb=all_ram)
 
         # "Consume" resources from the host the instance resides on.
         instances = db.instance_get_all(context)
@@ -162,8 +173,7 @@ class ZoneManager(object):
             disk = instance['local_gb']
             ram = instance['memory_mb']
             compute = compute_map[instance['host']]
-            compute['free_disk_gb'] -= disk
-            compute['free_ram_mb'] -= ram
+            self.consume_resources(compute, disk, ram)
 
         return compute_map.items()
 

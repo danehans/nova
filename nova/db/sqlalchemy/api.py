@@ -372,6 +372,7 @@ def compute_node_get_all(context, session=None):
         session = get_session()
 
     return session.query(models.ComputeNode).\
+                    options(joinedload('service')).\
                     filter_by(deleted=can_read_deleted(context))
 
 
