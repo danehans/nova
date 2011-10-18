@@ -137,6 +137,37 @@ def instance_addresses(context, instance_id):
     return None
 
 
+def create_fixed_ips(project_id, publics, privates, publics_are_floating):
+    if publics is None:
+        publics = []
+    if privates is None:
+        privates = []
+
+    fixed_ips = []
+    private_vif = dict(address='aa:bb:cc:dd:ee:ff')
+    private_net = dict(label='private', project_id=project_id, cidr_v6=None)
+
+    for private in privates:
+        entry = dict(address=private, network=private_net,
+                virtual_interface=private_vif, floating_ips=[])
+        if publics_are_floating:
+            for public in publics:
+                entry['floating_ips'].append(dict(address=public))
+            # Only add them once
+            publics = []
+        fixed_ips.append(entry)
+
+    if not publics_are_floating:
+        public_vif = dict(address='ff:ee:dd:cc:bb:aa')
+        public_net = dict(label='public', project_id=project_id,
+                cidr_v6='b33f::/64')
+        for public in publics:
+            entry = dict(address=public, network=public_net,
+                    virtual_interface=public_vif, floating_ips=[])
+            fixed_ips.append(entry)
+    return fixed_ips
+
+
 def stub_instance(id, user_id='fake', project_id='fake', host=None,
                   vm_state=None, task_state=None,
                   reservation_id="", uuid=FAKE_UUID, image_ref="10",
@@ -144,37 +175,6 @@ def stub_instance(id, user_id='fake', project_id='fake', host=None,
                   access_ipv4=None, access_ipv6=None, progress=0,
                   public_ips=None, private_ips=None,
                   public_ips_are_floating=False):
-
-    def _create_fixed_ips(publics, privates, publics_are_floating):
-        if publics is None:
-            publics = []
-        if privates is None:
-            privates = []
-
-        fixed_ips = []
-        private_vif = dict(address='aa:bb:cc:dd:ee:ff')
-        private_net = dict(label='private', project_id=project_id,
-                cidr_v6='d34d::/64')
-    
-        for private in privates:
-            entry = dict(address=private, network=private_net,
-                    virtual_interface=private_vif, floating_ips=[])
-            if publics_are_floating:
-                for public in publics:
-                    entry['floating_ips'].append(dict(address=public))
-                # Only add them once
-                publics = []
-            fixed_ips.append(entry)
-    
-        if not publics_are_floating:
-            public_vif = dict(address='ff:ee:dd:cc:bb:aa')
-            public_net = dict(label='public', project_id=project_id,
-                    cidr_v6='b33f::/64')
-            for public in publics:
-                entry = dict(address=public, network=public_net,
-                        virtual_interface=public_vif, floating_ips=[])
-                fixed_ips.append(entry)
-        return fixed_ips
 
     metadata = []
     metadata.append(InstanceMetadata(key='seq', value=id))
@@ -189,7 +189,7 @@ def stub_instance(id, user_id='fake', project_id='fake', host=None,
     else:
         key_data = ''
 
-    fixed_ips = _create_fixed_ips(public_ips, private_ips,
+    fixed_ips = create_fixed_ips(project_id, public_ips, private_ips,
             public_ips_are_floating)
 
     # ReservationID isn't sent back, hack it in there.
@@ -543,7 +543,6 @@ class ServersControllerTest(test.TestCase):
         addresses = res_dict['server']['addresses']
         expected = {
             'private': [
-                {'addr': 'd34d::a8bb:ccff:fedd:eeff', 'version': 6},
                 {'addr': '192.168.0.3', 'version': 4},
                 {'addr': '192.168.0.4', 'version': 4},
             ],
@@ -596,7 +595,6 @@ class ServersControllerTest(test.TestCase):
         expected = {
             'addresses': {
                 'private': [
-                    {'version': 6, 'addr': 'd34d::a8bb:ccff:fedd:eeff'},
                     {'version': 4, 'addr': '192.168.0.3'},
                     {'version': 4, 'addr': '192.168.0.4'},
                 ],
@@ -2578,12 +2576,15 @@ class ServersViewBuilderTest(test.TestCase):
                       },
                   ],
                 },
-                "addresses": {'private': [
-                                {'version': 4, 'addr': '172.19.0.1'}],
-                              'public': [
-                                {'version': 4, 'addr': '192.168.0.3'},
-                                {'version': 6, 'addr': 'fe80::beef'}]
-                             },
+                "addresses": {
+                    'private': [
+                        {'version': 4, 'addr': '172.19.0.1'}
+                    ],
+                    'public': [
+                        {'version': 6, 'addr': 'b33f::fdee:ddff:fecc:bbaa'},
+                        {'version': 4, 'addr': '192.168.0.3'},
+                    ],
+                },
                 "metadata": {},
                 "config_drive": None,
                 "links": [
@@ -2641,12 +2642,15 @@ class ServersViewBuilderTest(test.TestCase):
                       },
                   ],
                 },
-                "addresses": {'private': [
-                                {'version': 4, 'addr': '172.19.0.1'}],
-                              'public': [
-                                {'version': 4, 'addr': '192.168.0.3'},
-                                {'version': 6, 'addr': 'fe80::beef'}]
-                             },
+                "addresses": {
+                    'private': [
+                        {'version': 4, 'addr': '172.19.0.1'}
+                    ],
+                    'public': [
+                        {'version': 6, 'addr': 'b33f::fdee:ddff:fecc:bbaa'},
+                        {'version': 4, 'addr': '192.168.0.3'},
+                    ],
+                },
                 "metadata": {},
                 "config_drive": None,
                 "links": [
@@ -2702,12 +2706,15 @@ class ServersViewBuilderTest(test.TestCase):
                         },
                     ],
                 },
-                "addresses": {'private': [
-                                {'version': 4, 'addr': '172.19.0.1'}],
-                              'public': [
-                                {'version': 4, 'addr': '192.168.0.3'},
-                                {'version': 6, 'addr': 'fe80::beef'}]
-                             },
+                "addresses": {
+                    'private': [
+                        {'version': 4, 'addr': '172.19.0.1'}
+                    ],
+                    'public': [
+                        {'version': 6, 'addr': 'b33f::fdee:ddff:fecc:bbaa'},
+                        {'version': 4, 'addr': '192.168.0.3'},
+                    ],
+                },
                 "metadata": {},
                 "config_drive": None,
                 "accessIPv4": "1.2.3.4",
@@ -2765,12 +2772,15 @@ class ServersViewBuilderTest(test.TestCase):
                         },
                     ],
                 },
-                "addresses": {'private': [
-                                {'version': 4, 'addr': '172.19.0.1'}],
-                              'public': [
-                                {'version': 4, 'addr': '192.168.0.3'},
-                                {'version': 6, 'addr': 'fe80::beef'}]
-                             },
+                "addresses": {
+                    'private': [
+                        {'version': 4, 'addr': '172.19.0.1'}
+                    ],
+                    'public': [
+                        {'version': 6, 'addr': 'b33f::fdee:ddff:fecc:bbaa'},
+                        {'version': 4, 'addr': '192.168.0.3'},
+                    ]
+                },
                 "metadata": {},
                 "config_drive": None,
                 "accessIPv4": "",
@@ -2833,12 +2843,15 @@ class ServersViewBuilderTest(test.TestCase):
                         },
                     ],
                 },
-                "addresses": {'private': [
-                                {'version': 4, 'addr': '172.19.0.1'}],
-                              'public': [
-                                {'version': 4, 'addr': '192.168.0.3'},
-                                {'version': 6, 'addr': 'fe80::beef'}]
-                             },
+                "addresses": {
+                    'private': [
+                        {'version': 4, 'addr': '172.19.0.1'}
+                    ],
+                    'public': [
+                        {'version': 6, 'addr': 'b33f::fdee:ddff:fecc:bbaa'},
+                        {'version': 4, 'addr': '192.168.0.3'},
+                    ]
+                },
                 "metadata": {
                     "Open": "Stack",
                     "Number": "1",
