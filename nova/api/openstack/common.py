@@ -300,14 +300,15 @@ def get_networks_for_instance(context, instance):
             continue
         if label not in networks:
             networks[label] = {'ips': [], 'floating_ips': []}
+            # Only add IPv6 address once
+            cidr_v6 = network['cidr_v6']
+            if FLAGS.use_ipv6 and cidr_v6:
+                vif = fixed_ip['virtual_interface']
+                ipv6_addr = ipv6.to_global(cidr_v6, vif['address'],
+                        network['project_id'])
+                networks[label]['ips'].append(_emit_addr(ipv6_addr, 6))
         nw_dict = networks[label]
         nw_dict['ips'].append(_emit_addr(fixed_addr, 4))
-        cidr_v6 = network['cidr_v6']
-        if FLAGS.use_ipv6 and cidr_v6:
-            vif = fixed_ip['virtual_interface']
-            ipv6_addr = ipv6.to_global(cidr_v6, vif['address'],
-                    network['project_id'])
-            nw_dict['ips'].append(_emit_addr(ipv6_addr, 6))
         for floating_ip in fixed_ip['floating_ips']:
             float_addr = floating_ip['address']
             nw_dict['floating_ips'].append(_emit_addr(float_addr, 4))
