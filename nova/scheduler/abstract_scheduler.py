@@ -258,23 +258,24 @@ class AbstractScheduler(driver.Scheduler):
             msg = _("Scheduler only understands Compute nodes (for now)")
             raise NotImplementedError(msg)
 
-        # Get all available hosts.
-        all_hosts = self.zone_manager.service_states.iteritems()
-        unfiltered_hosts = [(host, services[topic])
-                for host, services in all_hosts
-                if topic in services]
+        elevated = context.elevated()
+        unfiltered_hosts = self.zone_manager.get_host_list_from_db(elevated)
 
+        LOG.debug(_("***** Unfiltered %(unfiltered_hosts)s") % locals())
         # Filter local hosts based on requirements ...
         filtered_hosts = self.filter_hosts(topic, request_spec,
                 unfiltered_hosts)
 
+        LOG.debug(_("***** Filtered %(filtered_hosts)s") % locals())
         # weigh the selected hosts.
         # weighted_hosts = [{weight=weight, hostname=hostname,
         #         capabilities=capabs}, ...]
         weighted_hosts = self.weigh_hosts(request_spec, filtered_hosts)
+
+        LOG.debug(_("***** Weighted %(weighted_hosts)s") % locals())
         # Next, tack on the host weights from the child zones
         json_spec = json.dumps(request_spec)
-        all_zones = db.zone_get_all(context.elevated())
+        all_zones = db.zone_get_all(elevated)
         child_results = self._call_zone_method(context, "select",
                 specs=json_spec, zones=all_zones)
         self._adjust_child_weights(child_results, all_zones)
@@ -300,8 +301,11 @@ class AbstractScheduler(driver.Scheduler):
         def basic_ram_filter(hostname, capabilities, request_spec):
             """Only return hosts with sufficient available RAM."""
             instance_type = request_spec['instance_type']
-            requested_mem = instance_type['memory_mb'] * 1024 * 1024
-            return capabilities['host_memory_free'] >= requested_mem
+            requested_ram = instance_type['memory_mb']
+            free_ram_mb = capabilities['free_ram_mb']
+            LOG.debug(_("****** Requested %(requested_ram)s Available "
+                    "%(free_ram_mb)s") % locals())
+            return free_ram_mb >= requested_ram
 
         return [(host, services) for host, services in host_list
                 if basic_ram_filter(host, services, request_spec)]

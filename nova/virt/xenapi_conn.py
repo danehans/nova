@@ -346,8 +346,43 @@ class XenAPIConnection(driver.ComputeDriver):
                  'password': FLAGS.xenapi_connection_password}
 
     def update_available_resource(self, ctxt, host):
-        """This method is supported only by libvirt."""
-        return
+        """Updates compute manager resource info on ComputeNode table.
+
+        This method is called when nova-compute launches, and
+        whenever admin executes "nova-manage service update_resource".
+
+        :param ctxt: security context
+        :param host: hostname that compute manager is currently running
+
+        """
+
+        try:
+            service_ref = db.service_get_all_compute_by_host(ctxt, host)[0]
+        except exception.NotFound:
+            raise exception.ComputeServiceUnavailable(host=host)
+
+        host_stats = self.get_host_stats(refresh=True)
+
+        # Updating host information
+        dic = {'vcpus': 0,
+               'memory_mb': host_stats['host_memory_total'],
+               'local_gb': host_stats['disk_total'],
+               'vcpus_used': 0,
+               'memory_mb_used': host_stats['host_memory_total'] - \
+                                 host_stats['host_memory_free'],
+               'local_gb_used': host_stats['disk_used'],
+               'hypervisor_type': 'xen',
+               'hypervisor_version': '?',
+               'cpu_info': '?'}
+
+        compute_node_ref = service_ref['compute_node']
+        if not compute_node_ref:
+            LOG.info(_('Compute_service record created for %s ') % host)
+            dic['service_id'] = service_ref['id']
+            db.compute_node_create(ctxt, dic)
+        else:
+            LOG.info(_('Compute_service record updated for %s ') % host)
+            db.compute_node_update(ctxt, compute_node_ref[0]['id'], dic)
 
     def compare_cpu(self, xml):
         """This method is supported only by libvirt."""
