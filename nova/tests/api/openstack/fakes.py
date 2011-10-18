@@ -170,46 +170,39 @@ def stub_out_compute_api_backup(stubs):
     stubs.Set(nova.compute.API, 'backup', backup)
 
 
-def stub_out_nw_api_get_ip_info(stubs, ip_info):
-    def _get_ip_info(self, context, instances, include_floating_ips=False):
-        for instance in instances:
-            yield ip_info
-    stubs.Set(nova.network.API, 'get_ip_info_for_instances', _get_ip_info)
+def stub_out_nw_api_get_instance_nw_info(stubs, func=None):
+    def get_instance_nw_info(self, context, instance):
+        return [(None, {'label': 'public',
+                         'ips': [{'ip': '192.168.0.3'}],
+                         'ip6s': []})]
+
+    if func is None:
+        func = get_instance_nw_info
+    stubs.Set(nova.network.API, 'get_instance_nw_info', func)
 
 
-def stub_out_nw_api(stubs, cls=None, privates=None, publics=None,
-        publics_are_floating=False):
-    """Stub out network API calls"""
+def stub_out_nw_api_get_floating_ips_by_fixed_address(stubs, func=None):
+    def get_floating_ips_by_fixed_address(self, context, fixed_ip):
+        return ['1.2.3.4']
 
-    if not privates:
-        privates = ['192.168.0.3']
+    if func is None:
+        func = get_floating_ips_by_fixed_address
+    stubs.Set(nova.network.API, 'get_floating_ips_by_fixed_address', func)
+
+
+def stub_out_nw_api(stubs, cls=None, private=None, publics=None):
+    if not private:
+        private = '192.168.0.3'
     if not publics:
         publics = ['1.2.3.4']
 
-    def _create_ip_info(include_floating_ips):
-        public_ips = []
-        for public in publics:
-            public_ips.append(dict(address=public))
-
-        priv_ip_info = dict(network='private')
-        priv_ip_info['fixed_ips'] = []
-        for private in privates:
-            fixed_ip = dict(address=private)
-            if include_floating_ips and publics_are_floating:
-                fixed_ip['floating_ips'] = public_ips
-            else:
-                fixed_ip['floating_ips'] = []
-            priv_ip_info['fixed_ips'].append(fixed_ip)
-        if publics_are_floating:
-            return [priv_ip_info]
-        pub_ip_info = dict(network='public', fixed_ips=public_ips)
-        return [priv_ip_info, pub_ip_info]
-
     class Fake:
-        def get_ip_info_for_instances(self, context, instances,
-                include_floating_ips=False):
-            for instance in instances:
-                yield _create_ip_info(include_floating_ips)
+        def get_instance_nw_info(*args, **kwargs):
+            return [(None, {'label': 'private',
+                            'ips': [{'ip': private}]})]
+
+        def get_floating_ips_by_fixed_address(*args, **kwargs):
+            return publics
 
     if cls is None:
         cls = Fake
