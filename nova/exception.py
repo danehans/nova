@@ -394,16 +394,16 @@ class VolumeIsBusy(Error):
     message = _("deleting volume %(volume_name)s that has snapshot")
 
 
-class ExportDeviceNotFoundForVolume(NotFound):
-    message = _("No export device found for volume %(volume_id)s.")
-
-
 class ISCSITargetNotFoundForVolume(NotFound):
     message = _("No target id found for volume %(volume_id)s.")
 
 
 class DiskNotFound(NotFound):
     message = _("No disk at %(location)s")
+
+
+class VolumeDriverNotFound(NotFound):
+    message = _("Could not find a handler for %(driver_type)s volume.")
 
 
 class InvalidImageRef(Invalid):
@@ -554,8 +554,12 @@ class NoMoreFloatingIps(FloatingIpNotFound):
     message = _("Zero floating ips available.")
 
 
-class FloatingIpAlreadyInUse(NovaException):
-    message = _("Floating ip %(address)s already in use by %(fixed_ip)s.")
+class FloatingIpAssociated(NovaException):
+    message = _("Floating ip %(address)s is associated.")
+
+
+class FloatingIpNotAssociated(NovaException):
+    message = _("Floating ip %(address)s is not associated.")
 
 
 class NoFloatingIpsDefined(NotFound):
@@ -735,7 +739,7 @@ class NetworkAdapterNotFound(NotFound):
 
 
 class ClassNotFound(NotFound):
-    message = _("Class %(class_name)s could not be found")
+    message = _("Class %(class_name)s could not be found: %(exception)s")
 
 
 class NotAllowed(NovaException):
@@ -849,3 +853,7 @@ class InstanceTypeDiskTooSmall(NovaException):
 
 class InsufficientFreeMemory(NovaException):
     message = _("Insufficient free memory on compute node to start %(uuid)s.")
+
+
+class CouldNotFetchMetrics(NovaException):
+    message = _("Could not fetch bandwidth/cpu/disk metrics for this host.")

@@ -16,6 +16,7 @@
 
 """Test suite for XenAPI."""
 
+import contextlib
 import functools
 import json
 import os
@@ -55,10 +56,30 @@ def stub_vm_utils_with_vdi_attached_here(function, should_return=True):
     """
     @functools.wraps(function)
     def decorated_function(self, *args, **kwargs):
-        orig_with_vdi_attached_here = vm_utils.with_vdi_attached_here
-        vm_utils.with_vdi_attached_here = lambda *x: should_return
-        function(self, *args, **kwargs)
-        vm_utils.with_vdi_attached_here = orig_with_vdi_attached_here
+        @contextlib.contextmanager
+        def fake_vdi_attached_here(*args, **kwargs):
+            fake_dev = 'fakedev'
+            yield fake_dev
+
+        def fake_stream_disk(*args, **kwargs):
+            pass
+
+        def fake_is_vdi_pv(*args, **kwargs):
+            return should_return
+
+        orig_vdi_attached_here = vm_utils.vdi_attached_here
+        orig_stream_disk = vm_utils._stream_disk
+        orig_is_vdi_pv = vm_utils._is_vdi_pv
+        try:
+            vm_utils.vdi_attached_here = fake_vdi_attached_here
+            vm_utils._stream_disk = fake_stream_disk
+            vm_utils._is_vdi_pv = fake_is_vdi_pv
+            return function(self, *args, **kwargs)
+        finally:
+            vm_utils._is_vdi_pv = orig_is_vdi_pv
+            vm_utils._stream_disk = orig_stream_disk
+            vm_utils.vdi_attached_here = orig_vdi_attached_here
+
     return decorated_function
 
 
@@ -99,6 +120,20 @@ class XenAPIVolumeTestCase(test.TestCase):
         vol['attach_status'] = "detached"
         return db.volume_create(self.context, vol)
 
+    @staticmethod
+    def _make_info():
+        return {
+            'driver_volume_type': 'iscsi',
+            'data': {
+                'volume_id': 1,
+                'target_iqn': 'iqn.2010-10.org.openstack:volume-00000001',
+                'target_portal': '127.0.0.1:3260,fake',
+                'auth_method': 'CHAP',
+                'auth_method': 'fake',
+                'auth_method': 'fake',
+            }
+        }
+
     def test_create_iscsi_storage(self):
         """This shows how to test helper classes' methods."""
         stubs.stubout_session(self.stubs, stubs.FakeSessionForVolumeTests)
@@ -106,7 +141,7 @@ class XenAPIVolumeTestCase(test.TestCase):
         helper = volume_utils.VolumeHelper
         helper.XenAPI = session.get_imported_xenapi()
         vol = self._create_volume()
-        info = helper.parse_volume_info(vol['id'], '/dev/sdc')
+        info = helper.parse_volume_info(self._make_info(), '/dev/sdc')
         label = 'SR-%s' % vol['id']
         description = 'Test-SR'
         sr_ref = helper.create_iscsi_storage(session, info, label, description)
@@ -124,8 +159,9 @@ class XenAPIVolumeTestCase(test.TestCase):
         # oops, wrong mount point!
         self.assertRaises(volume_utils.StorageError,
                           helper.parse_volume_info,
-                          vol['id'],
-                          '/dev/sd')
+                          self._make_info(),
+                          'dev/sd'
+                          )
         db.volume_destroy(context.get_admin_context(), vol['id'])
 
     def test_attach_volume(self):
@@ -135,7 +171,8 @@ class XenAPIVolumeTestCase(test.TestCase):
         volume = self._create_volume()
         instance = db.instance_create(self.context, self.instance_values)
         vm = xenapi_fake.create_vm(instance.name, 'Running')
-        result = conn.attach_volume(instance.name, volume['id'], '/dev/sdc')
+        result = conn.attach_volume(self._make_info(),
+                                    instance.name, '/dev/sdc')
 
         def check():
             # check that the VM has a VBD attached to it

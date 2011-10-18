@@ -26,35 +26,6 @@ from nova.api.openstack import xmlutil
 
 
 VERSIONS = {
-    "v1.0": {
-        "id": "v1.0",
-        "status": "DEPRECATED",
-        "updated": "2011-01-21T11:33:21Z",
-        "links": [
-            {
-                "rel": "describedby",
-                "type": "application/pdf",
-                "href": "http://docs.rackspacecloud.com/"
-                        "servers/api/v1.0/cs-devguide-20110125.pdf",
-            },
-            {
-                "rel": "describedby",
-                "type": "application/vnd.sun.wadl+xml",
-                "href": "http://docs.rackspacecloud.com/"
-                        "servers/api/v1.0/application.wadl",
-            },
-        ],
-        "media-types": [
-            {
-                "base": "application/xml",
-                "type": "application/vnd.openstack.compute-v1.0+xml",
-            },
-            {
-                "base": "application/json",
-                "type": "application/vnd.openstack.compute-v1.0+json",
-            }
-        ],
-    },
     "v1.1": {
         "id": "v1.1",
         "status": "CURRENT",
@@ -76,11 +47,11 @@ VERSIONS = {
         "media-types": [
             {
                 "base": "application/xml",
-                "type": "application/vnd.openstack.compute-v1.1+xml",
+                "type": "application/vnd.openstack.compute+xml;version=1.1",
             },
             {
                 "base": "application/json",
-                "type": "application/vnd.openstack.compute-v1.1+json",
+                "type": "application/vnd.openstack.compute+json;version=1.1",
             }
         ],
     },
@@ -106,13 +77,7 @@ class Versions(wsgi.Resource):
             body_serializers=body_serializers,
             headers_serializer=headers_serializer)
 
-        supported_content_types = ('application/json',
-                                   'application/vnd.openstack.compute+json',
-                                   'application/xml',
-                                   'application/vnd.openstack.compute+xml',
-                                   'application/atom+xml')
-        deserializer = VersionsRequestDeserializer(
-            supported_content_types=supported_content_types)
+        deserializer = VersionsRequestDeserializer()
 
         wsgi.Resource.__init__(self, None, serializer=serializer,
                                deserializer=deserializer)
@@ -128,12 +93,6 @@ class Versions(wsgi.Resource):
             return builder.build_choices(VERSIONS, request)
 
 
-class VersionV10(object):
-    def show(self, req):
-        builder = nova.api.openstack.views.versions.get_view_builder(req)
-        return builder.build_version(VERSIONS['v1.0'])
-
-
 class VersionV11(object):
     def show(self, req):
         builder = nova.api.openstack.views.versions.get_view_builder(req)
@@ -141,15 +100,6 @@ class VersionV11(object):
 
 
 class VersionsRequestDeserializer(wsgi.RequestDeserializer):
-    def get_expected_content_type(self, request):
-        supported_content_types = list(self.supported_content_types)
-        if request.path != '/':
-            # Remove atom+xml accept type for 300 responses
-            if 'application/atom+xml' in supported_content_types:
-                supported_content_types.remove('application/atom+xml')
-
-        return request.best_match_content_type(supported_content_types)
-
     def get_action_args(self, request_environment):
         """Parse dictionary created by routes library."""
         args = {}
@@ -297,25 +247,14 @@ class VersionsHeadersSerializer(wsgi.ResponseHeadersSerializer):
         response.status_int = 300
 
 
-def create_resource(version='1.0'):
-    controller = {
-        '1.0': VersionV10,
-        '1.1': VersionV11,
-    }[version]()
-
+def create_resource():
     body_serializers = {
         'application/xml': VersionsXMLSerializer(),
         'application/atom+xml': VersionsAtomSerializer(),
     }
     serializer = wsgi.ResponseSerializer(body_serializers)
 
-    supported_content_types = ('application/json',
-                               'application/vnd.openstack.compute+json',
-                               'application/xml',
-                               'application/vnd.openstack.compute+xml',
-                               'application/atom+xml')
-    deserializer = wsgi.RequestDeserializer(
-        supported_content_types=supported_content_types)
+    deserializer = wsgi.RequestDeserializer()
 
-    return wsgi.Resource(controller, serializer=serializer,
+    return wsgi.Resource(VersionV11(), serializer=serializer,
                          deserializer=deserializer)

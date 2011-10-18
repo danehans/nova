@@ -55,6 +55,11 @@ flags.DEFINE_integer('agent_version_timeout', 300,
 flags.DEFINE_string('xenapi_vif_driver',
                     'nova.virt.xenapi.vif.XenAPIBridgeDriver',
                     'The XenAPI VIF driver using XenServer Network APIs.')
+flags.DEFINE_bool('xenapi_generate_swap',
+                  False,
+                  'Whether to generate swap (False means fetching it'
+                  ' from OVA)')
+
 
 RESIZE_TOTAL_STEPS = 5
 BUILD_TOTAL_STEPS = 4
@@ -339,10 +344,20 @@ class VMOps(object):
             # userdevice 1 is reserved for rescue and we've used '0'
             userdevice = 2
 
+        ctx = nova_context.get_admin_context()
+        instance_type = db.instance_type_get(ctx, instance.instance_type_id)
+        swap_mb = instance_type['swap']
+        generate_swap = swap_mb and FLAGS.xenapi_generate_swap
+        if generate_swap:
+            VMHelper.generate_swap(session=self._session, instance=instance,
+                                   vm_ref=vm_ref, userdevice=userdevice,
+                                   swap_mb=swap_mb)
+            userdevice += 1
+
         # Attach any other disks
         for vdi in vdis[1:]:
-            # vdi['vdi_type'] is either 'os' or 'swap', but we don't
-            # really care what it is right here.
+            if generate_swap and vdi['vdi_type'] == 'swap':
+                continue
             vdi_ref = self._session.call_xenapi('VDI.get_by_uuid',
                     vdi['vdi_uuid'])
             VMHelper.create_vbd(session=self._session, vm_ref=vm_ref,
@@ -445,7 +460,8 @@ class VMOps(object):
         resources = []
         if spawn_error.args:
             last_arg = spawn_error.args[-1]
-            resources = last_arg
+            if isinstance(last_arg, list):
+                resources = last_arg
         if vdis:
             for vdi in vdis:
                 resources.append(dict(vdi_type=vdi['vdi_type'],
@@ -1117,6 +1133,41 @@ class VMOps(object):
         vm_ref = self._get_vm_opaque_ref(instance)
         self._start(instance, vm_ref)
 
+    def _cancel_stale_tasks(self, timeout, task):
+        """Cancel the given tasks that are older than the given timeout."""
+        task_refs = self._session.get_xenapi().task.get_by_name_label(task)
+        for task_ref in task_refs:
+            task_rec = self._session.get_xenapi().task.get_record(task_ref)
+            task_created = utils.parse_strtime(task_rec["created"].value,
+                    "%Y%m%dT%H:%M:%SZ")
+
+            if utils.is_older_than(task_created, timeout):
+                self._session.get_xenapi().task.cancel(task_ref)
+
+    def poll_rebooting_instances(self, timeout):
+        """Look for expirable rebooting instances.
+
+            - issue a "hard" reboot to any instance that has been stuck in a
+              reboot state for >= the given timeout
+        """
+        # NOTE(jk0): All existing clean_reboot tasks must be cancelled before
+        # we can kick off the hard_reboot tasks.
+        self._cancel_stale_tasks(timeout, "Async.VM.clean_reboot")
+
+        ctxt = nova_context.get_admin_context()
+        instances = db.instance_get_all_hung_in_rebooting(ctxt, timeout)
+
+        instances_info = dict(instance_count=len(instances),
+                timeout=timeout)
+
+        if instances_info["instance_count"] > 0:
+            LOG.info(_("Found %(instance_count)d hung reboots "
+                    "older than %(timeout)d seconds") % instances_info)
+
+        for instance in instances:
+            LOG.info(_("Automatically hard rebooting %d"), instance.id)
+            self.compute_api.reboot(ctxt, instance.id, "HARD")
+
     def poll_rescued_instances(self, timeout):
         """Look for expirable rescued instances.
 
@@ -1188,6 +1239,38 @@ class VMOps(object):
         vm_ref = self._get_vm_opaque_ref(instance)
         vm_rec = self._session.get_xenapi().VM.get_record(vm_ref)
         return VMHelper.compile_diagnostics(self._session, vm_rec)
+
+    def get_all_bw_usage(self, start_time, stop_time=None):
+        """Return bandwidth usage info for each interface on each
+           running VM"""
+        try:
+            metrics = VMHelper.compile_metrics(self._session,
+                                               start_time,
+                                               stop_time)
+        except exception.CouldNotFetchMetrics:
+            LOG.exception(_("Could not get bandwidth info."),
+                          exc_info=sys.exc_info())
+        bw = {}
+        for uuid, data in metrics.iteritems():
+            vm_ref = self._session.get_xenapi().VM.get_by_uuid(uuid)
+            vm_rec = self._session.get_xenapi().VM.get_record(vm_ref)
+            vif_map = {}
+            for vif in [self._session.get_xenapi().VIF.get_record(vrec)
+                        for vrec in vm_rec['VIFs']]:
+                vif_map[vif['device']] = vif['MAC']
+            name = vm_rec['name_label']
+            if name.startswith('Control domain'):
+                continue
+            vifs_bw = bw.setdefault(name, {})
+            for key, val in data.iteritems():
+                if key.startswith('vif_'):
+                    vname = key.split('_')[1]
+                    vif_bw = vifs_bw.setdefault(vif_map[vname], {})
+                    if key.endswith('tx'):
+                        vif_bw['bw_out'] = int(val)
+                    if key.endswith('rx'):
+                        vif_bw['bw_in'] = int(val)
+        return bw
 
     def get_console_output(self, instance):
         """Return snapshot of console."""

@@ -130,24 +130,6 @@ class CloudTestCase(test.TestCase):
         result = self.cloud.release_address(self.context, address)
         self.assertEqual(result['releaseResponse'], ['Address released.'])
 
-    def test_release_address_still_associated(self):
-        address = "10.10.10.10"
-        fixed_ip = {'instance': {'id': 1}}
-        floating_ip = {'id': 0,
-                       'address': address,
-                       'fixed_ip_id': 0,
-                       'fixed_ip': fixed_ip,
-                       'project_id': None,
-                       'auto_assigned': False}
-        network_api = network.api.API()
-        self.mox.StubOutWithMock(network_api.db, 'floating_ip_get_by_address')
-        network_api.db.floating_ip_get_by_address(mox.IgnoreArg(),
-                                mox.IgnoreArg()).AndReturn(floating_ip)
-        self.mox.ReplayAll()
-        release = self.cloud.release_address
-        # ApiError: Floating ip is in use.  Disassociate it before releasing.
-        self.assertRaises(exception.ApiError, release, self.context, address)
-
     def test_associate_disassociate_address(self):
         """Verifies associate runs cleanly without raising an exception"""
         address = "10.10.10.10"
@@ -1295,7 +1277,7 @@ class CloudTestCase(test.TestCase):
             LOG.debug(info)
             if predicate(info):
                 break
-            greenthread.sleep(1)
+            greenthread.sleep(0.5)
 
     def _wait_for_running(self, instance_id):
         def is_running(info):
@@ -1314,6 +1296,16 @@ class CloudTestCase(test.TestCase):
     def _wait_for_terminate(self, instance_id):
         def is_deleted(info):
             return info['deleted']
+        id = ec2utils.ec2_id_to_id(instance_id)
+        # NOTE(vish): Wait for InstanceNotFound, then verify that
+        #             the instance is actually deleted.
+        while True:
+            try:
+                self.cloud.compute_api.get(self.context, instance_id=id)
+            except exception.InstanceNotFound:
+                break
+            greenthread.sleep(0.1)
+
         elevated = self.context.elevated(read_deleted=True)
         self._wait_for_state(elevated, instance_id, is_deleted)
 
@@ -1329,26 +1321,21 @@ class CloudTestCase(test.TestCase):
 
         # a running instance can't be started. It is just ignored.
         result = self.cloud.start_instances(self.context, [instance_id])
-        greenthread.sleep(0.3)
         self.assertTrue(result)
 
         result = self.cloud.stop_instances(self.context, [instance_id])
-        greenthread.sleep(0.3)
         self.assertTrue(result)
         self._wait_for_stopped(instance_id)
 
         result = self.cloud.start_instances(self.context, [instance_id])
-        greenthread.sleep(0.3)
         self.assertTrue(result)
         self._wait_for_running(instance_id)
 
         result = self.cloud.stop_instances(self.context, [instance_id])
-        greenthread.sleep(0.3)
         self.assertTrue(result)
         self._wait_for_stopped(instance_id)
 
         result = self.cloud.terminate_instances(self.context, [instance_id])
-        greenthread.sleep(0.3)
         self.assertTrue(result)
 
         self._restart_compute_service()
@@ -1560,24 +1547,20 @@ class CloudTestCase(test.TestCase):
         self.assertTrue(vol2_id)
 
         self.cloud.terminate_instances(self.context, [ec2_instance_id])
-        greenthread.sleep(0.3)
         self._wait_for_terminate(ec2_instance_id)
 
-        greenthread.sleep(0.3)
         admin_ctxt = context.get_admin_context(read_deleted=False)
         vol = db.volume_get(admin_ctxt, vol1_id)
         self._assert_volume_detached(vol)
         self.assertFalse(vol['deleted'])
         db.volume_destroy(self.context, vol1_id)
 
-        greenthread.sleep(0.3)
         admin_ctxt = context.get_admin_context(read_deleted=True)
         vol = db.volume_get(admin_ctxt, vol2_id)
         self.assertTrue(vol['deleted'])
 
         for snapshot_id in (ec2_snapshot1_id, ec2_snapshot2_id):
             self.cloud.delete_snapshot(self.context, snapshot_id)
-            greenthread.sleep(0.3)
         db.volume_destroy(self.context, vol['id'])
 
     def test_create_image(self):

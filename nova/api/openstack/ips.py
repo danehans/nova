@@ -52,37 +52,6 @@ class Controller(object):
     def delete(self, req, server_id, id):
         raise exc.HTTPNotImplemented()
 
-
-class ControllerV10(Controller):
-
-    def index(self, req, server_id):
-        context = req.environ['nova.context']
-        instance = self._get_instance(context, server_id)
-        networks = common.get_networks_for_instance(context, instance)
-        builder = self._get_view_builder(req)
-        return {'addresses': builder.build(networks)}
-
-    def show(self, req, server_id, id):
-        context = req.environ['nova.context']
-        instance = self._get_instance(context, server_id)
-        networks = common.get_networks_for_instance(context, instance)
-        builder = self._get_view_builder(req)
-        if id == 'private':
-            view = builder.build_private_parts(networks)
-        elif id == 'public':
-            view = builder.build_public_parts(networks)
-        else:
-            msg = _("Only private and public networks available")
-            raise exc.HTTPNotFound(explanation=msg)
-
-        return {id: view}
-
-    def _get_view_builder(self, req):
-        return views_addresses.ViewBuilderV10()
-
-
-class ControllerV11(Controller):
-
     def index(self, req, server_id):
         context = req.environ['nova.context']
         instance = self._get_instance(context, server_id)
@@ -102,60 +71,46 @@ class ControllerV11(Controller):
         return network
 
     def _get_view_builder(self, req):
-        return views_addresses.ViewBuilderV11()
+        return views_addresses.ViewBuilder()
 
 
-class IPXMLSerializer(wsgi.XMLDictSerializer):
+def make_network(elem):
+    elem.set('id', 0)
 
-    NSMAP = {None: xmlutil.XMLNS_V11}
-
-    def __init__(self, xmlns=wsgi.XMLNS_V11):
-        super(IPXMLSerializer, self).__init__(xmlns=xmlns)
-
-    def populate_addresses_node(self, addresses_elem, addresses_dict):
-        for (network_id, ip_dicts) in addresses_dict.items():
-            network_elem = self._create_network_node(network_id, ip_dicts)
-            addresses_elem.append(network_elem)
-
-    def _create_network_node(self, network_id, ip_dicts):
-        network_elem = etree.Element('network', nsmap=self.NSMAP)
-        network_elem.set('id', str(network_id))
-        for ip_dict in ip_dicts:
-            ip_elem = etree.SubElement(network_elem, 'ip')
-            ip_elem.set('version', str(ip_dict['version']))
-            ip_elem.set('addr', ip_dict['addr'])
-        return network_elem
-
-    def show(self, network_dict):
-        (network_id, ip_dicts) = network_dict.items()[0]
-        network = self._create_network_node(network_id, ip_dicts)
-        return self._to_xml(network)
-
-    def index(self, addresses_dict):
-        addresses = etree.Element('addresses', nsmap=self.NSMAP)
-        self.populate_addresses_node(addresses,
-                                     addresses_dict.get('addresses', {}))
-        return self._to_xml(addresses)
+    ip = xmlutil.SubTemplateElement(elem, 'ip', selector=1)
+    ip.set('version')
+    ip.set('addr')
 
 
-def create_resource(version):
-    controller = {
-        '1.0': ControllerV10,
-        '1.1': ControllerV11,
-    }[version]()
+network_nsmap = {None: xmlutil.XMLNS_V11}
 
-    metadata = {
-        'list_collections': {
-            'public': {'item_name': 'ip', 'item_key': 'addr'},
-            'private': {'item_name': 'ip', 'item_key': 'addr'},
-        },
-    }
 
-    xml_serializer = {
-        '1.0': wsgi.XMLDictSerializer(metadata=metadata, xmlns=wsgi.XMLNS_V11),
-        '1.1': IPXMLSerializer(),
-    }[version]
+class NetworkTemplate(xmlutil.TemplateBuilder):
+    def construct(self):
+        sel = xmlutil.Selector(xmlutil.get_items, 0)
+        root = xmlutil.TemplateElement('network', selector=sel)
+        make_network(root)
+        return xmlutil.MasterTemplate(root, 1, nsmap=network_nsmap)
 
-    serializer = wsgi.ResponseSerializer({'application/xml': xml_serializer})
 
-    return wsgi.Resource(controller, serializer=serializer)
+class AddressesTemplate(xmlutil.TemplateBuilder):
+    def construct(self):
+        root = xmlutil.TemplateElement('addresses', selector='addresses')
+        elem = xmlutil.SubTemplateElement(root, 'network',
+                                          selector=xmlutil.get_items)
+        make_network(elem)
+        return xmlutil.MasterTemplate(root, 1, nsmap=network_nsmap)
+
+
+class IPXMLSerializer(xmlutil.XMLTemplateSerializer):
+    def show(self):
+        return NetworkTemplate()
+
+    def index(self):
+        return AddressesTemplate()
+
+
+def create_resource():
+    body_serializers = {'application/xml': IPXMLSerializer()}
+    serializer = wsgi.ResponseSerializer(body_serializers)
+    return wsgi.Resource(Controller(), serializer=serializer)

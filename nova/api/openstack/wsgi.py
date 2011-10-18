@@ -43,7 +43,7 @@ _CONTENT_TYPE_MAP = {
     'application/vnd.openstack.compute+xml': 'application/xml',
 }
 
-_SUPPORTED_CONTENT_TYPES = (
+SUPPORTED_CONTENT_TYPES = (
     'application/json',
     'application/vnd.openstack.compute+json',
     'application/xml',
@@ -54,25 +54,26 @@ _SUPPORTED_CONTENT_TYPES = (
 class Request(webob.Request):
     """Add some Openstack API-specific logic to the base webob.Request."""
 
-    def best_match_content_type(self, supported_content_types=None):
-        """Determine the requested response content-type.
+    def best_match_content_type(self):
+        """Determine the requested response content-type."""
+        if 'nova.best_content_type' not in self.environ:
+            # Calculate the best MIME type
+            content_type = None
 
-        Based on the query extension then the Accept header.
+            # Check URL path suffix
+            parts = self.path.rsplit('.', 1)
+            if len(parts) > 1:
+                possible_type = 'application/' + parts[1]
+                if possible_type in SUPPORTED_CONTENT_TYPES:
+                    content_type = possible_type
 
-        """
-        supported_content_types = supported_content_types or \
-            _SUPPORTED_CONTENT_TYPES
+            if not content_type:
+                content_type = self.accept.best_match(SUPPORTED_CONTENT_TYPES)
 
-        parts = self.path.rsplit('.', 1)
-        if len(parts) > 1:
-            ctype = 'application/{0}'.format(parts[1])
-            if ctype in supported_content_types:
-                return ctype
+            self.environ['nova.best_content_type'] = content_type or \
+                'application/json'
 
-        bm = self.accept.best_match(supported_content_types)
-
-        # default to application/json if we don't find a preference
-        return bm or 'application/json'
+        return self.environ['nova.best_content_type']
 
     def get_content_type(self):
         """Determine content type of the request body.
@@ -83,7 +84,7 @@ class Request(webob.Request):
         if not "Content-Type" in self.headers:
             return None
 
-        allowed_types = _SUPPORTED_CONTENT_TYPES
+        allowed_types = SUPPORTED_CONTENT_TYPES
         content_type = self.content_type
 
         if content_type not in allowed_types:
@@ -219,12 +220,7 @@ class RequestHeadersDeserializer(ActionDispatcher):
 class RequestDeserializer(object):
     """Break up a Request object into more useful pieces."""
 
-    def __init__(self, body_deserializers=None, headers_deserializer=None,
-                 supported_content_types=None):
-
-        self.supported_content_types = supported_content_types or \
-                _SUPPORTED_CONTENT_TYPES
-
+    def __init__(self, body_deserializers=None, headers_deserializer=None):
         self.body_deserializers = {
             'application/xml': XMLDeserializer(),
             'application/json': JSONDeserializer(),
@@ -287,7 +283,7 @@ class RequestDeserializer(object):
             raise exception.InvalidContentType(content_type=content_type)
 
     def get_expected_content_type(self, request):
-        return request.best_match_content_type(self.supported_content_types)
+        return request.best_match_content_type()
 
     def get_action_args(self, request_environment):
         """Parse dictionary created by routes library."""
@@ -453,7 +449,8 @@ class ResponseSerializer(object):
         self.headers_serializer = headers_serializer or \
                                     ResponseHeadersSerializer()
 
-    def serialize(self, response_data, content_type, action='default'):
+    def serialize(self, request, response_data, content_type,
+                  action='default'):
         """Serialize a dict into a string and wrap in a wsgi.Request object.
 
         :param response_data: dict produced by the Controller
@@ -462,17 +459,28 @@ class ResponseSerializer(object):
         """
         response = webob.Response()
         self.serialize_headers(response, response_data, action)
-        self.serialize_body(response, response_data, content_type, action)
+        self.serialize_body(request, response, response_data, content_type,
+                            action)
         return response
 
     def serialize_headers(self, response, data, action):
         self.headers_serializer.serialize(response, data, action)
 
-    def serialize_body(self, response, data, content_type, action):
+    def serialize_body(self, request, response, data, content_type, action):
         response.headers['Content-Type'] = content_type
         if data is not None:
             serializer = self.get_body_serializer(content_type)
-            response.body = serializer.serialize(data, action)
+            lazy_serialize = request.environ.get('nova.lazy_serialize', False)
+            if lazy_serialize:
+                response.body = utils.dumps(data)
+                request.environ['nova.serializer'] = serializer
+                request.environ['nova.action'] = action
+                if (hasattr(serializer, 'get_template') and
+                    'nova.template' not in request.environ):
+                    template = serializer.get_template(action)
+                    request.environ['nova.template'] = template
+            else:
+                response.body = serializer.serialize(data, action)
 
     def get_body_serializer(self, content_type):
         try:
@@ -480,6 +488,32 @@ class ResponseSerializer(object):
             return self.body_serializers[ctype]
         except (KeyError, TypeError):
             raise exception.InvalidContentType(content_type=content_type)
+
+
+class LazySerializationMiddleware(wsgi.Middleware):
+    """Lazy serialization middleware."""
+    @webob.dec.wsgify(RequestClass=Request)
+    def __call__(self, req):
+        # Request lazy serialization
+        req.environ['nova.lazy_serialize'] = True
+
+        response = req.get_response(self.application)
+
+        # See if there's a serializer...
+        serializer = req.environ.get('nova.serializer')
+        if serializer is None:
+            return response
+
+        # OK, build up the arguments for the serialize() method
+        kwargs = dict(action=req.environ['nova.action'])
+        if 'nova.template' in req.environ:
+            kwargs['template'] = req.environ['nova.template']
+
+        # Re-serialize the body
+        response.body = serializer.serialize(utils.loads(response.body),
+                                             **kwargs)
+
+        return response
 
 
 class Resource(wsgi.Application):
@@ -535,7 +569,8 @@ class Resource(wsgi.Application):
             action_result = faults.Fault(ex)
 
         if type(action_result) is dict or action_result is None:
-            response = self.serializer.serialize(action_result,
+            response = self.serializer.serialize(request,
+                                                 action_result,
                                                  accept,
                                                  action=action)
         else:

@@ -796,6 +796,25 @@ def fixed_ip_disassociate_all_by_timeout(_context, host, time):
     return result
 
 
+@require_context
+def fixed_ip_get(context, id, session=None):
+    if not session:
+        session = get_session()
+    result = session.query(models.FixedIp).\
+                     filter_by(id=id).\
+                     filter_by(deleted=can_read_deleted(context)).\
+                     options(joinedload('floating_ips')).\
+                     options(joinedload('network')).\
+                     first()
+    if not result:
+        raise exception.FixedIpNotFound(id=id)
+
+    if is_user_context(context):
+        authorize_project_context(context, result.instance.project_id)
+
+    return result
+
+
 @require_admin_context
 def fixed_ip_get_all(context, session=None):
     if not session:
@@ -1141,6 +1160,11 @@ def instance_destroy(context, instance_id):
                         'deleted_at': utils.utcnow(),
                         'updated_at': literal_column('updated_at')})
         session.query(models.InstanceMetadata).\
+                filter_by(instance_id=instance_id).\
+                update({'deleted': True,
+                        'deleted_at': utils.utcnow(),
+                        'updated_at': literal_column('updated_at')})
+        session.query(models.BlockDeviceMapping).\
                 filter_by(instance_id=instance_id).\
                 update({'deleted': True,
                         'deleted_at': utils.utcnow(),
@@ -1503,6 +1527,21 @@ def instance_get_floating_address(context, instance_id):
         return None
     # NOTE(vish): this just returns the first floating ip
     return fixed_ip_refs[0].floating_ips[0]['address']
+
+
+@require_admin_context
+def instance_get_all_hung_in_rebooting(context, reboot_window, session=None):
+    reboot_window = datetime.datetime.utcnow() - datetime.timedelta(
+            seconds=reboot_window)
+
+    if not session:
+        session = get_session()
+
+    results = session.query(models.Instance).\
+            filter(models.Instance.updated_at <= reboot_window).\
+            filter_by(task_state="rebooting").all()
+
+    return results
 
 
 @require_context
@@ -1984,28 +2023,6 @@ def queue_get_for(_context, topic, physical_node_id):
 
 
 @require_admin_context
-def export_device_count(context):
-    session = get_session()
-    return session.query(models.ExportDevice).\
-                   filter_by(deleted=can_read_deleted(context)).\
-                   count()
-
-
-@require_admin_context
-def export_device_create_safe(context, values):
-    export_device_ref = models.ExportDevice()
-    export_device_ref.update(values)
-    try:
-        export_device_ref.save()
-        return export_device_ref
-    except IntegrityError:
-        return None
-
-
-###################
-
-
-@require_admin_context
 def iscsi_target_count_by_host(context, host):
     session = get_session()
     return session.query(models.IscsiTarget).\
@@ -2141,24 +2158,6 @@ def quota_destroy_all_by_project(context, project_id):
 
 
 @require_admin_context
-def volume_allocate_shelf_and_blade(context, volume_id):
-    session = get_session()
-    with session.begin():
-        export_device = session.query(models.ExportDevice).\
-                                filter_by(volume=None).\
-                                filter_by(deleted=False).\
-                                with_lockmode('update').\
-                                first()
-        # NOTE(vish): if with_lockmode isn't supported, as in sqlite,
-        #             then this has concurrency issues
-        if not export_device:
-            raise db.NoMoreBlades()
-        export_device.volume_id = volume_id
-        session.add(export_device)
-    return (export_device.shelf_id, export_device.blade_id)
-
-
-@require_admin_context
 def volume_allocate_iscsi_target(context, volume_id, host):
     session = get_session()
     with session.begin():
@@ -2224,9 +2223,6 @@ def volume_destroy(context, volume_id):
                 update({'deleted': True,
                         'deleted_at': utils.utcnow(),
                         'updated_at': literal_column('updated_at')})
-        session.query(models.ExportDevice).\
-                filter_by(volume_id=volume_id).\
-                update({'volume_id': None})
         session.query(models.IscsiTarget).\
                 filter_by(volume_id=volume_id).\
                 update({'volume_id': None})
@@ -2343,18 +2339,6 @@ def volume_get_instance(context, volume_id):
         raise exception.VolumeNotFound(volume_id=volume_id)
 
     return result.instance
-
-
-@require_admin_context
-def volume_get_shelf_and_blade(context, volume_id):
-    session = get_session()
-    result = session.query(models.ExportDevice).\
-                     filter_by(volume_id=volume_id).\
-                     first()
-    if not result:
-        raise exception.ExportDeviceNotFoundForVolume(volume_id=volume_id)
-
-    return (result.shelf_id, result.blade_id)
 
 
 @require_admin_context
@@ -2813,14 +2797,13 @@ def security_group_rule_get_by_security_group(context, security_group_id,
         result = session.query(models.SecurityGroupIngressRule).\
                          filter_by(deleted=can_read_deleted(context)).\
                          filter_by(parent_group_id=security_group_id).\
-                         options(joinedload_all('grantee_group')).\
+                         options(joinedload_all('grantee_group.instances')).\
                          all()
     else:
-        # TODO(vish): Join to group and check for project_id
         result = session.query(models.SecurityGroupIngressRule).\
                          filter_by(deleted=False).\
                          filter_by(parent_group_id=security_group_id).\
-                         options(joinedload_all('grantee_group')).\
+                         options(joinedload_all('grantee_group.instances')).\
                          all()
     return result
 
@@ -3647,6 +3630,42 @@ def agent_build_update(context, agent_build_id, values):
                    first()
         agent_build_ref.update(values)
         agent_build_ref.save(session=session)
+
+
+####################
+
+@require_context
+def bw_usage_get_by_instance(context, instance_id, start_period):
+    session = get_session()
+    return session.query(models.BandwidthUsage).\
+                   filter_by(instance_id=instance_id).\
+                   filter_by(start_period=start_period).\
+                   all()
+
+
+@require_context
+def bw_usage_update(context,
+                    instance_id,
+                    network_label,
+                    start_period,
+                    bw_in, bw_out,
+                    session=None):
+    session = session if session else get_session()
+    with session.begin():
+        bwusage = session.query(models.BandwidthUsage).\
+                      filter_by(instance_id=instance_id).\
+                      filter_by(start_period=start_period).\
+                      filter_by(network_label=network_label).\
+                      first()
+        if not bwusage:
+            bwusage = models.BandwidthUsage()
+            bwusage.instance_id = instance_id
+            bwusage.start_period = start_period
+            bwusage.network_label = network_label
+        bwusage.last_refreshed = utils.utcnow()
+        bwusage.bw_in = bw_in
+        bwusage.bw_out = bw_out
+        bwusage.save(session=session)
 
 
 ####################

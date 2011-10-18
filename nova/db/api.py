@@ -56,18 +56,13 @@ IMPL = utils.LazyPluggable(FLAGS['db_backend'],
                            sqlalchemy='nova.db.sqlalchemy.api')
 
 
-class NoMoreBlades(exception.Error):
-    """No more available blades."""
-    pass
-
-
 class NoMoreNetworks(exception.Error):
     """No more available networks."""
     pass
 
 
 class NoMoreTargets(exception.Error):
-    """No more available blades"""
+    """No more available targets"""
     pass
 
 
@@ -372,6 +367,11 @@ def fixed_ip_disassociate_all_by_timeout(context, host, time):
     return IMPL.fixed_ip_disassociate_all_by_timeout(context, host, time)
 
 
+def fixed_ip_get(context, id):
+    """Get fixed ip by id or raise if it does not exist."""
+    return IMPL.fixed_ip_get(context, id)
+
+
 def fixed_ip_get_all(context):
     """Get all defined fixed ips."""
     return IMPL.fixed_ip_get_all(context)
@@ -583,6 +583,12 @@ def instance_get_floating_address(context, instance_id):
 def instance_get_project_vpn(context, project_id):
     """Get a vpn instance by project or return None."""
     return IMPL.instance_get_project_vpn(context, project_id)
+
+
+def instance_get_all_hung_in_rebooting(context, reboot_window, session=None):
+    """Get all instances stuck in a rebooting state."""
+    return IMPL.instance_get_all_hung_in_rebooting(context, reboot_window,
+            session)
 
 
 def instance_set_state(context, instance_id, state, description=None):
@@ -809,25 +815,6 @@ def queue_get_for(context, topic, physical_node_id):
 ###################
 
 
-def export_device_count(context):
-    """Return count of export devices."""
-    return IMPL.export_device_count(context)
-
-
-def export_device_create_safe(context, values):
-    """Create an export_device from the values dictionary.
-
-    The device is not returned. If the create violates the unique
-    constraints because the shelf_id and blade_id already exist,
-    no exception is raised.
-
-    """
-    return IMPL.export_device_create_safe(context, values)
-
-
-###################
-
-
 def iscsi_target_count_by_host(context, host):
     """Return count of export devices."""
     return IMPL.iscsi_target_count_by_host(context, host)
@@ -903,11 +890,6 @@ def quota_destroy_all_by_project(context, project_id):
 ###################
 
 
-def volume_allocate_shelf_and_blade(context, volume_id):
-    """Atomically allocate a free shelf and blade from the pool."""
-    return IMPL.volume_allocate_shelf_and_blade(context, volume_id)
-
-
 def volume_allocate_iscsi_target(context, volume_id, host):
     """Atomically allocate a free iscsi_target from the pool."""
     return IMPL.volume_allocate_iscsi_target(context, volume_id, host)
@@ -971,11 +953,6 @@ def volume_get_by_ec2_id(context, ec2_id):
 def volume_get_instance(context, volume_id):
     """Get the instance that a volume is attached to."""
     return IMPL.volume_get_instance(context, volume_id)
-
-
-def volume_get_shelf_and_blade(context, volume_id):
-    """Get the shelf and blade allocated to the volume."""
-    return IMPL.volume_get_shelf_and_blade(context, volume_id)
 
 
 def volume_get_iscsi_target_num(context, volume_id):
@@ -1462,6 +1439,30 @@ def agent_build_destroy(context, agent_update_id):
 def agent_build_update(context, agent_build_id, values):
     """Update agent build entry."""
     IMPL.agent_build_update(context, agent_build_id, values)
+
+
+####################
+
+
+def bw_usage_get_by_instance(context, instance_id, start_period):
+    """Return bw usages for an instance in a given audit period."""
+    return IMPL.bw_usage_get_by_instance(context, instance_id, start_period)
+
+
+def bw_usage_update(context,
+                    instance_id,
+                    network_label,
+                    start_period,
+                    bw_in, bw_out,
+                    session=None):
+    """Update cached bw usage for an instance and network
+       Creates new record if needed."""
+    return IMPL.bw_usage_update(context,
+                                instance_id,
+                                network_label,
+                                start_period,
+                                bw_in, bw_out,
+                                session=None)
 
 
 ####################

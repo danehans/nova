@@ -70,9 +70,9 @@ class Controller(object):
         try:
             servers = self._get_servers(req, is_detail=False)
         except exception.Invalid as err:
-            return exc.HTTPBadRequest(explanation=str(err))
+            raise exc.HTTPBadRequest(explanation=str(err))
         except exception.NotFound:
-            return exc.HTTPNotFound()
+            raise exc.HTTPNotFound()
         return servers
 
     def detail(self, req):
@@ -80,22 +80,10 @@ class Controller(object):
         try:
             servers = self._get_servers(req, is_detail=True)
         except exception.Invalid as err:
-            return exc.HTTPBadRequest(explanation=str(err))
+            raise exc.HTTPBadRequest(explanation=str(err))
         except exception.NotFound as err:
-            return exc.HTTPNotFound()
+            raise exc.HTTPNotFound()
         return servers
-
-    def _build_view(self, req, instance, is_detail=False):
-        raise NotImplementedError()
-
-    def _build_list(self, req, instances, is_detail=False):
-        raise NotImplementedError()
-
-    def _limit_items(self, items, req):
-        raise NotImplementedError()
-
-    def _action_rebuild(self, info, request, instance_id):
-        raise NotImplementedError()
 
     def _get_block_device_mapping(self, data):
         """Get block_device_mapping from 'server' dictionary.
@@ -346,10 +334,6 @@ class Controller(object):
         except exception.NotFound:
             raise exc.HTTPNotFound()
 
-    def _get_key_name(self, req, body):
-        """ Get default keypair if not set """
-        raise NotImplementedError()
-
     def create(self, req, body):
         """ Creates a new server for a given user """
 
@@ -556,10 +540,8 @@ class Controller(object):
         except exception.NotFound:
             raise exc.HTTPNotFound()
 
-        return self._update(ctxt, req, id, body)
-
-    def _update(self, context, req, id, inst_dict):
-        return exc.HTTPNotImplemented()
+        instance = self.compute_api.routing_get(ctxt, id)
+        return self._build_view(req, instance, is_detail=True)
 
     @exception.novaclient_converter
     @scheduler_api.redirect_handler
@@ -654,16 +636,12 @@ class Controller(object):
         resp.headers['Location'] = image_ref
         return resp
 
-    @common.check_snapshots_enabled
-    def _action_create_image(self, input_dict, req, id):
-        return exc.HTTPNotImplemented()
-
-    def _action_change_password(self, input_dict, req, id):
-        return exc.HTTPNotImplemented()
-
     def _action_confirm_resize(self, input_dict, req, id):
         try:
             self.compute_api.confirm_resize(req.environ['nova.context'], id)
+        except exception.MigrationNotFound:
+            msg = _("Instance has not been resized.")
+            raise exc.HTTPBadRequest(explanation=msg)
         except Exception, e:
             LOG.exception(_("Error in confirm-resize %s"), e)
             raise exc.HTTPBadRequest()
@@ -672,13 +650,13 @@ class Controller(object):
     def _action_revert_resize(self, input_dict, req, id):
         try:
             self.compute_api.revert_resize(req.environ['nova.context'], id)
+        except exception.MigrationNotFound:
+            msg = _("Instance has not been resized.")
+            raise exc.HTTPBadRequest(explanation=msg)
         except Exception, e:
             LOG.exception(_("Error in revert-resize %s"), e)
             raise exc.HTTPBadRequest()
         return webob.Response(status_int=202)
-
-    def _action_resize(self, input_dict, req, id):
-        return exc.HTTPNotImplemented()
 
     def _action_reboot(self, input_dict, req, id):
         if 'reboot' in input_dict and 'type' in input_dict['reboot']:
@@ -777,96 +755,6 @@ class Controller(object):
 
         return webob.Response(status_int=202)
 
-
-class ControllerV10(Controller):
-    """v1.0 OpenStack API controller"""
-
-    @exception.novaclient_converter
-    @scheduler_api.redirect_handler
-    def delete(self, req, id):
-        """ Destroys a server """
-        try:
-            self._delete(req.environ['nova.context'], id)
-        except exception.NotFound:
-            raise exc.HTTPNotFound()
-        return webob.Response(status_int=202)
-
-    def _get_key_name(self, req, body):
-        context = req.environ["nova.context"]
-        keypairs = db.key_pair_get_all_by_user(context,
-                                               context.user_id)
-        if keypairs:
-            return keypairs[0]['name']
-
-    def _image_ref_from_req_data(self, data):
-        return data['server']['imageId']
-
-    def _flavor_id_from_req_data(self, data):
-        return data['server']['flavorId']
-
-    def _build_view(self, req, instance, is_detail=False):
-        context = req.environ['nova.context']
-        addresses = views_addresses.ViewBuilderV10()
-        builder = views_servers.ViewBuilderV10(context, addresses)
-        return builder.build(instance, is_detail=is_detail)
-
-    def _build_list(self, req, instances, is_detail=False):
-        context = req.environ['nova.context']
-        addresses = views_addresses.ViewBuilderV10()
-        builder = views_servers.ViewBuilderV10(context, addresses)
-        return builder.build_list(instances, is_detail=is_detail)
-
-    def _limit_items(self, items, req):
-        return common.limited(items, req)
-
-    def _update(self, context, req, id, inst_dict):
-        if 'adminPass' in inst_dict['server']:
-            self.compute_api.set_admin_password(context, id,
-                    inst_dict['server']['adminPass'])
-        return exc.HTTPNoContent()
-
-    def _action_resize(self, input_dict, req, id):
-        """ Resizes a given instance to the flavor size requested """
-        try:
-            flavor_id = input_dict["resize"]["flavorId"]
-        except (KeyError, TypeError):
-            msg = _("Resize requests require 'flavorId' attribute.")
-            raise exc.HTTPBadRequest(explanation=msg)
-
-        return self.resize(req, id, flavor_id)
-
-    def _action_rebuild(self, info, request, instance_id):
-        context = request.environ['nova.context']
-
-        try:
-            image_id = info["rebuild"]["imageId"]
-        except (KeyError, TypeError):
-            msg = _("Could not parse imageId from request.")
-            LOG.debug(msg)
-            raise exc.HTTPBadRequest(explanation=msg)
-
-        password = utils.generate_password(FLAGS.password_length)
-
-        try:
-            self.compute_api.rebuild(context, instance_id, image_id, password)
-        except exception.RebuildRequiresActiveInstance:
-            msg = _("Instance %s must be active to rebuild.") % instance_id
-            raise exc.HTTPConflict(explanation=msg)
-
-        return webob.Response(status_int=202)
-
-    def _get_server_admin_password(self, server):
-        """ Determine the admin password for a server on creation """
-        return self._get_server_admin_password_old_style(server)
-
-    def _get_server_search_options(self):
-        """Return server search options allowed by non-admin"""
-        return 'reservation_id', 'fixed_ip', 'name', 'local_zone_only'
-
-
-class ControllerV11(Controller):
-    """v1.1 OpenStack API controller"""
-
     @exception.novaclient_converter
     @scheduler_api.redirect_handler
     def delete(self, req, id):
@@ -904,10 +792,10 @@ class ControllerV11(Controller):
         context = req.environ['nova.context']
         project_id = getattr(context, 'project_id', '')
         base_url = req.application_url
-        flavor_builder = views_flavors.ViewBuilderV11(base_url, project_id)
-        image_builder = views_images.ViewBuilderV11(base_url, project_id)
-        addresses_builder = views_addresses.ViewBuilderV11()
-        builder = views_servers.ViewBuilderV11(context, addresses_builder,
+        flavor_builder = views_flavors.ViewBuilder(base_url, project_id)
+        image_builder = views_images.ViewBuilder(base_url, project_id)
+        addresses_builder = views_addresses.ViewBuilder()
+        builder = views_servers.ViewBuilder(context, addresses_builder,
                 flavor_builder, image_builder, base_url, project_id)
         return builder.build(instance, is_detail=is_detail)
 
@@ -921,10 +809,10 @@ class ControllerV11(Controller):
         context = req.environ['nova.context']
         project_id = getattr(context, 'project_id', '')
         base_url = req.application_url
-        flavor_builder = views_flavors.ViewBuilderV11(base_url, project_id)
-        image_builder = views_images.ViewBuilderV11(base_url, project_id)
-        addresses_builder = views_addresses.ViewBuilderV11()
-        builder = views_servers.ViewBuilderV11(context, addresses_builder,
+        flavor_builder = views_flavors.ViewBuilder(base_url, project_id)
+        image_builder = views_images.ViewBuilder(base_url, project_id)
+        addresses_builder = views_addresses.ViewBuilder()
+        builder = views_servers.ViewBuilder(context, addresses_builder,
                 flavor_builder, image_builder, base_url, project_id)
         return builder.build_list(instances, is_detail=is_detail, **params)
 
@@ -970,10 +858,6 @@ class ControllerV11(Controller):
                 msg = _("Personality content could not be Base64 decoded.")
                 LOG.info(msg)
                 raise exc.HTTPBadRequest(explanation=msg)
-
-    def _update(self, context, req, id, inst_dict):
-        instance = self.compute_api.routing_get(context, id)
-        return self._build_view(req, instance, is_detail=True)
 
     def _action_resize(self, input_dict, req, id):
         """ Resizes a given instance to the flavor size requested """
@@ -1070,7 +954,10 @@ class ControllerV11(Controller):
 
         # build location of newly-created image entity
         image_id = str(image['id'])
-        image_ref = os.path.join(req.application_url, 'images', image_id)
+        image_ref = os.path.join(req.application_url,
+                                 context.project_id,
+                                 'images',
+                                 image_id)
 
         resp = webob.Response(status_int=202)
         resp.headers['Location'] = image_ref
@@ -1101,180 +988,110 @@ class HeadersSerializer(wsgi.ResponseHeadersSerializer):
         response.status_int = 202
 
 
-class ServerXMLSerializer(wsgi.XMLDictSerializer):
-
-    NSMAP = {None: xmlutil.XMLNS_V11, 'atom': xmlutil.XMLNS_ATOM}
-
-    def __init__(self):
-        self.metadata_serializer = common.MetadataXMLSerializer()
-        self.addresses_serializer = ips.IPXMLSerializer()
-
-    def _create_metadata_node(self, metadata_dict):
-        metadata_elem = etree.Element('metadata', nsmap=self.NSMAP)
-        self.metadata_serializer.populate_metadata(metadata_elem,
-                                                   metadata_dict)
-        return metadata_elem
-
-    def _create_image_node(self, image_dict):
-        image_elem = etree.Element('image', nsmap=self.NSMAP)
-        image_elem.set('id', str(image_dict['id']))
-        for link in image_dict.get('links', []):
-            elem = etree.SubElement(image_elem,
-                                    '{%s}link' % xmlutil.XMLNS_ATOM)
-            elem.set('rel', link['rel'])
-            elem.set('href', link['href'])
-        return image_elem
-
-    def _create_flavor_node(self, flavor_dict):
-        flavor_elem = etree.Element('flavor', nsmap=self.NSMAP)
-        flavor_elem.set('id', str(flavor_dict['id']))
-        for link in flavor_dict.get('links', []):
-            elem = etree.SubElement(flavor_elem,
-                                    '{%s}link' % xmlutil.XMLNS_ATOM)
-            elem.set('rel', link['rel'])
-            elem.set('href', link['href'])
-        return flavor_elem
-
-    def _create_addresses_node(self, addresses_dict):
-        addresses_elem = etree.Element('addresses', nsmap=self.NSMAP)
-        self.addresses_serializer.populate_addresses_node(addresses_elem,
-                                                          addresses_dict)
-        return addresses_elem
-
-    def _populate_server(self, server_elem, server_dict, detailed=False):
-        """Populate a server xml element from a dict."""
-
-        server_elem.set('name', server_dict['name'])
-        server_elem.set('id', str(server_dict['id']))
-        if detailed:
-            server_elem.set('uuid', str(server_dict['uuid']))
-            server_elem.set('userId', str(server_dict['user_id']))
-            server_elem.set('tenantId', str(server_dict['tenant_id']))
-            server_elem.set('updated', str(server_dict['updated']))
-            server_elem.set('created', str(server_dict['created']))
-            server_elem.set('hostId', str(server_dict['hostId']))
-            server_elem.set('accessIPv4', str(server_dict['accessIPv4']))
-            server_elem.set('accessIPv6', str(server_dict['accessIPv6']))
-            server_elem.set('status', str(server_dict['status']))
-            if 'progress' in server_dict:
-                server_elem.set('progress', str(server_dict['progress']))
-            image_elem = self._create_image_node(server_dict['image'])
-            server_elem.append(image_elem)
-
-            flavor_elem = self._create_flavor_node(server_dict['flavor'])
-            server_elem.append(flavor_elem)
-
-            meta_elem = self._create_metadata_node(
-                            server_dict.get('metadata', {}))
-            server_elem.append(meta_elem)
-
-            addresses_elem = self._create_addresses_node(
-                            server_dict.get('addresses', {}))
-            server_elem.append(addresses_elem)
-            groups = server_dict.get('security_groups')
-            if groups:
-                groups_elem = etree.SubElement(server_elem, 'security_groups')
-                for group in groups:
-                    group_elem = etree.SubElement(groups_elem,
-                                                  'security_group')
-                    group_elem.set('name', group['name'])
-
-        self._populate_links(server_elem, server_dict.get('links', []))
-
-    def _populate_links(self, parent, links):
-        for link in links:
-            elem = etree.SubElement(parent,
-                                    '{%s}link' % xmlutil.XMLNS_ATOM)
-            elem.set('rel', link['rel'])
-            elem.set('href', link['href'])
-
-    def index(self, servers_dict):
-        servers = etree.Element('servers', nsmap=self.NSMAP)
-        for server_dict in servers_dict['servers']:
-            server = etree.SubElement(servers, 'server')
-            self._populate_server(server, server_dict, False)
-
-        self._populate_links(servers, servers_dict.get('servers_links', []))
-        return self._to_xml(servers)
-
-    def detail(self, servers_dict):
-        servers = etree.Element('servers', nsmap=self.NSMAP)
-        for server_dict in servers_dict['servers']:
-            server = etree.SubElement(servers, 'server')
-            self._populate_server(server, server_dict, True)
-        return self._to_xml(servers)
-
-    def show(self, server_dict):
-        server = etree.Element('server', nsmap=self.NSMAP)
-        self._populate_server(server, server_dict['server'], True)
-        return self._to_xml(server)
-
-    def create(self, server_dict):
-        server = etree.Element('server', nsmap=self.NSMAP)
-        self._populate_server(server, server_dict['server'], True)
-        server.set('adminPass', server_dict['server']['adminPass'])
-        return self._to_xml(server)
-
-    def action(self, server_dict):
-        #NOTE(bcwaldon): We need a way to serialize actions individually. This
-        # assumes all actions return a server entity
-        return self.create(server_dict)
-
-    def update(self, server_dict):
-        server = etree.Element('server', nsmap=self.NSMAP)
-        self._populate_server(server, server_dict['server'], True)
-        return self._to_xml(server)
+class SecurityGroupsTemplateElement(xmlutil.TemplateElement):
+    def will_render(self, datum):
+        return 'security_groups' in datum
 
 
-class ServerXMLDeserializer(wsgi.XMLDeserializer):
-    """
-    Deserializer to handle xml-formatted server create requests.
+def make_server(elem, detailed=False):
+    elem.set('name')
+    elem.set('id')
 
-    Handles standard server attributes as well as optional metadata
-    and personality attributes
-    """
+    if detailed:
+        elem.set('uuid')
+        elem.set('userId', 'user_id')
+        elem.set('tenantId', 'tenant_id')
+        elem.set('updated')
+        elem.set('created')
+        elem.set('hostId')
+        elem.set('accessIPv4')
+        elem.set('accessIPv6')
+        elem.set('status')
+        elem.set('progress')
 
-    metadata_deserializer = common.MetadataXMLDeserializer()
+        # Attach image node
+        image = xmlutil.SubTemplateElement(elem, 'image', selector='image')
+        image.set('id')
+        xmlutil.make_links(image, 'links')
 
-    def create(self, string):
-        """Deserialize an xml-formatted server create request"""
-        dom = minidom.parseString(string)
-        server = self._extract_server(dom)
-        return {'body': {'server': server}}
+        # Attach flavor node
+        flavor = xmlutil.SubTemplateElement(elem, 'flavor', selector='flavor')
+        flavor.set('id')
+        xmlutil.make_links(flavor, 'links')
 
-    def _extract_server(self, node):
-        """Marshal the server attribute of a parsed request"""
-        server = {}
-        server_node = self.find_first_child_named(node, 'server')
+        # Attach metadata node
+        elem.append(common.MetadataTemplate())
 
-        attributes = ["name", "imageId", "flavorId", "adminPass"]
-        for attr in attributes:
-            if server_node.getAttribute(attr):
-                server[attr] = server_node.getAttribute(attr)
+        # Attach addresses node
+        elem.append(ips.AddressesTemplate())
 
-        metadata_node = self.find_first_child_named(server_node, "metadata")
-        server["metadata"] = self.metadata_deserializer.extract_metadata(
-                                                            metadata_node)
+        # Attach security groups node
+        secgrps = SecurityGroupsTemplateElement('security_groups')
+        elem.append(secgrps)
+        secgrp = xmlutil.SubTemplateElement(secgrps, 'security_group',
+                                            selector='security_groups')
+        secgrp.set('name')
 
-        server["personality"] = self._extract_personality(server_node)
-
-        return server
-
-    def _extract_personality(self, server_node):
-        """Marshal the personality attribute of a parsed request"""
-        node = self.find_first_child_named(server_node, "personality")
-        personality = []
-        if node is not None:
-            for file_node in self.find_children_named(node, "file"):
-                item = {}
-                if file_node.hasAttribute("path"):
-                    item["path"] = file_node.getAttribute("path")
-                item["contents"] = self.extract_text(file_node)
-                personality.append(item)
-        return personality
+    xmlutil.make_links(elem, 'links')
 
 
-class ServerXMLDeserializerV11(wsgi.MetadataXMLDeserializer):
+server_nsmap = {None: xmlutil.XMLNS_V11, 'atom': xmlutil.XMLNS_ATOM}
+
+
+class ServerTemplate(xmlutil.TemplateBuilder):
+    def construct(self):
+        root = xmlutil.TemplateElement('server', selector='server')
+        make_server(root, detailed=True)
+        return xmlutil.MasterTemplate(root, 1, nsmap=server_nsmap)
+
+
+class MinimalServersTemplate(xmlutil.TemplateBuilder):
+    def construct(self):
+        root = xmlutil.TemplateElement('servers')
+        elem = xmlutil.SubTemplateElement(root, 'server', selector='servers')
+        make_server(elem)
+        xmlutil.make_links(root, 'servers_links')
+        return xmlutil.MasterTemplate(root, 1, nsmap=server_nsmap)
+
+
+class ServersTemplate(xmlutil.TemplateBuilder):
+    def construct(self):
+        root = xmlutil.TemplateElement('servers')
+        elem = xmlutil.SubTemplateElement(root, 'server', selector='servers')
+        make_server(elem, detailed=True)
+        return xmlutil.MasterTemplate(root, 1, nsmap=server_nsmap)
+
+
+class ServerAdminPassTemplate(xmlutil.TemplateBuilder):
+    def construct(self):
+        root = xmlutil.TemplateElement('server')
+        root.set('adminPass')
+        return xmlutil.SlaveTemplate(root, 1, nsmap=server_nsmap)
+
+
+class ServerXMLSerializer(xmlutil.XMLTemplateSerializer):
+    def index(self):
+        return MinimalServersTemplate()
+
+    def detail(self):
+        return ServersTemplate()
+
+    def show(self):
+        return ServerTemplate()
+
+    def update(self):
+        return ServerTemplate()
+
+    def create(self):
+        master = ServerTemplate()
+        master.attach(ServerAdminPassTemplate())
+        return master
+
+    def action(self):
+        return self.create()
+
+
+class ServerXMLDeserializer(wsgi.MetadataXMLDeserializer):
     """
     Deserializer to handle xml-formatted server create requests.
 
@@ -1447,57 +1264,13 @@ class ServerXMLDeserializerV11(wsgi.MetadataXMLDeserializer):
             return None
 
 
-def create_resource(version='1.0'):
-    controller = {
-        '1.0': ControllerV10,
-        '1.1': ControllerV11,
-    }[version]()
-
-    metadata = {
-        "attributes": {
-            "server": ["id", "imageId", "name", "flavorId", "hostId",
-                       "status", "progress", "adminPass", "flavorRef",
-                       "imageRef", "userId", "tenantId"],
-            "link": ["rel", "type", "href"],
-        },
-        "dict_collections": {
-            "metadata": {"item_name": "meta", "item_key": "key"},
-        },
-        "list_collections": {
-            "public": {"item_name": "ip", "item_key": "addr"},
-            "private": {"item_name": "ip", "item_key": "addr"},
-        },
-    }
-
-    xmlns = {
-        '1.0': wsgi.XMLNS_V10,
-        '1.1': wsgi.XMLNS_V11,
-    }[version]
-
+def create_resource():
     headers_serializer = HeadersSerializer()
-
-    xml_serializer = {
-        '1.0': wsgi.XMLDictSerializer(metadata, wsgi.XMLNS_V10),
-        '1.1': ServerXMLSerializer(),
-    }[version]
-
-    body_serializers = {
-        'application/xml': xml_serializer,
-    }
-
-    xml_deserializer = {
-        '1.0': ServerXMLDeserializer(),
-        '1.1': ServerXMLDeserializerV11(),
-    }[version]
-
-    body_deserializers = {
-        'application/xml': xml_deserializer,
-    }
-
+    body_serializers = {'application/xml': ServerXMLSerializer()}
     serializer = wsgi.ResponseSerializer(body_serializers, headers_serializer)
+    body_deserializers = {'application/xml': ServerXMLDeserializer()}
     deserializer = wsgi.RequestDeserializer(body_deserializers)
-
-    return wsgi.Resource(controller, deserializer, serializer)
+    return wsgi.Resource(Controller(), deserializer, serializer)
 
 
 def remove_invalid_options(context, search_options, allowed_search_options):

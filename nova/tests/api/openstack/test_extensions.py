@@ -22,6 +22,7 @@ from lxml import etree
 
 from nova import context
 from nova import test
+from nova import wsgi as base_wsgi
 from nova.api import openstack
 from nova.api.openstack import extensions
 from nova.api.openstack import flavors
@@ -109,10 +110,11 @@ class ExtensionControllerTest(test.TestCase):
         self.ext_list.sort()
 
     def test_list_extensions_json(self):
-        app = openstack.APIRouterV11()
+        app = openstack.APIRouter()
         ext_midware = extensions.ExtensionMiddleware(app)
+        ser_midware = wsgi.LazySerializationMiddleware(ext_midware)
         request = webob.Request.blank("/123/extensions")
-        response = request.get_response(ext_midware)
+        response = request.get_response(ser_midware)
         self.assertEqual(200, response.status_int)
 
         # Make sure we have all the extensions.
@@ -135,10 +137,11 @@ class ExtensionControllerTest(test.TestCase):
         )
 
     def test_get_extension_json(self):
-        app = openstack.APIRouterV11()
+        app = openstack.APIRouter()
         ext_midware = extensions.ExtensionMiddleware(app)
+        ser_midware = wsgi.LazySerializationMiddleware(ext_midware)
         request = webob.Request.blank("/123/extensions/FOXNSOX")
-        response = request.get_response(ext_midware)
+        response = request.get_response(ser_midware)
         self.assertEqual(200, response.status_int)
 
         data = json.loads(response.body)
@@ -151,18 +154,19 @@ class ExtensionControllerTest(test.TestCase):
                 "links": []})
 
     def test_get_non_existing_extension_json(self):
-        app = openstack.APIRouterV11()
+        app = openstack.APIRouter()
         ext_midware = extensions.ExtensionMiddleware(app)
         request = webob.Request.blank("/123/extensions/4")
         response = request.get_response(ext_midware)
         self.assertEqual(404, response.status_int)
 
     def test_list_extensions_xml(self):
-        app = openstack.APIRouterV11()
+        app = openstack.APIRouter()
         ext_midware = extensions.ExtensionMiddleware(app)
+        ser_midware = wsgi.LazySerializationMiddleware(ext_midware)
         request = webob.Request.blank("/123/extensions")
         request.accept = "application/xml"
-        response = request.get_response(ext_midware)
+        response = request.get_response(ser_midware)
         self.assertEqual(200, response.status_int)
         print response.body
 
@@ -185,11 +189,12 @@ class ExtensionControllerTest(test.TestCase):
         xmlutil.validate_schema(root, 'extensions')
 
     def test_get_extension_xml(self):
-        app = openstack.APIRouterV11()
+        app = openstack.APIRouter()
         ext_midware = extensions.ExtensionMiddleware(app)
+        ser_midware = wsgi.LazySerializationMiddleware(ext_midware)
         request = webob.Request.blank("/123/extensions/FOXNSOX")
         request.accept = "application/xml"
-        response = request.get_response(ext_midware)
+        response = request.get_response(ser_midware)
         self.assertEqual(200, response.status_int)
         xml = response.body
         print xml
@@ -216,20 +221,22 @@ class ResourceExtensionTest(test.TestCase):
 
     def test_no_extension_present(self):
         manager = StubExtensionManager(None)
-        app = openstack.APIRouterV11()
+        app = openstack.APIRouter()
         ext_midware = extensions.ExtensionMiddleware(app, manager)
+        ser_midware = wsgi.LazySerializationMiddleware(ext_midware)
         request = webob.Request.blank("/blah")
-        response = request.get_response(ext_midware)
+        response = request.get_response(ser_midware)
         self.assertEqual(404, response.status_int)
 
     def test_get_resources(self):
         res_ext = extensions.ResourceExtension('tweedles',
                                                StubController(response_body))
         manager = StubExtensionManager(res_ext)
-        app = openstack.APIRouterV11()
+        app = openstack.APIRouter()
         ext_midware = extensions.ExtensionMiddleware(app, manager)
+        ser_midware = wsgi.LazySerializationMiddleware(ext_midware)
         request = webob.Request.blank("/123/tweedles")
-        response = request.get_response(ext_midware)
+        response = request.get_response(ser_midware)
         self.assertEqual(200, response.status_int)
         self.assertEqual(response_body, response.body)
 
@@ -237,10 +244,11 @@ class ResourceExtensionTest(test.TestCase):
         res_ext = extensions.ResourceExtension('tweedles',
                                                StubController(response_body))
         manager = StubExtensionManager(res_ext)
-        app = openstack.APIRouterV11()
+        app = openstack.APIRouter()
         ext_midware = extensions.ExtensionMiddleware(app, manager)
+        ser_midware = wsgi.LazySerializationMiddleware(ext_midware)
         request = webob.Request.blank("/123/tweedles")
-        response = request.get_response(ext_midware)
+        response = request.get_response(ser_midware)
         self.assertEqual(200, response.status_int)
         self.assertEqual(response_body, response.body)
 
@@ -261,15 +269,18 @@ class ExtensionManagerTest(test.TestCase):
         self.flags(osapi_extensions_path=ext_path)
 
     def test_get_resources(self):
-        app = openstack.APIRouterV11()
+        app = openstack.APIRouter()
         ext_midware = extensions.ExtensionMiddleware(app)
+        ser_midware = wsgi.LazySerializationMiddleware(ext_midware)
         request = webob.Request.blank("/123/foxnsocks")
-        response = request.get_response(ext_midware)
+        response = request.get_response(ser_midware)
         self.assertEqual(200, response.status_int)
         self.assertEqual(response_body, response.body)
 
     def test_invalid_extensions(self):
-        app = openstack.APIRouterV11()
+        # Don't need the serialization middleware here because we're
+        # not testing any serialization
+        app = openstack.APIRouter()
         ext_midware = extensions.ExtensionMiddleware(app)
         ext_mgr = ext_midware.ext_mgr
         ext_mgr.add_extension(InvalidExtension())
@@ -285,13 +296,14 @@ class ActionExtensionTest(test.TestCase):
         self.flags(osapi_extensions_path=ext_path)
 
     def _send_server_action_request(self, url, body):
-        app = openstack.APIRouterV11()
+        app = openstack.APIRouter()
         ext_midware = extensions.ExtensionMiddleware(app)
+        ser_midware = wsgi.LazySerializationMiddleware(ext_midware)
         request = webob.Request.blank(url)
         request.method = 'POST'
         request.content_type = 'application/json'
         request.body = json.dumps(body)
-        response = request.get_response(ext_midware)
+        response = request.get_response(ser_midware)
         return response
 
     def test_extended_action(self):
@@ -328,11 +340,9 @@ class RequestExtensionTest(test.TestCase):
 
     def test_get_resources_with_stub_mgr(self):
 
-        def _req_handler(req, res):
+        def _req_handler(req, res, body):
             # only handle JSON responses
-            data = json.loads(res.body)
-            data['flavor']['googoose'] = req.GET.get('chewing')
-            res.body = json.dumps(data)
+            body['flavor']['googoose'] = req.GET.get('chewing')
             return res
 
         req_ext = extensions.RequestExtension('GET',
@@ -340,22 +350,24 @@ class RequestExtensionTest(test.TestCase):
                                                 _req_handler)
 
         manager = StubExtensionManager(None, None, req_ext)
-        app = fakes.wsgi_app()
+        app = fakes.wsgi_app(serialization=base_wsgi.Middleware)
         ext_midware = extensions.ExtensionMiddleware(app, manager)
+        ser_midware = wsgi.LazySerializationMiddleware(ext_midware)
         request = webob.Request.blank("/v1.1/123/flavors/1?chewing=bluegoo")
         request.environ['api.version'] = '1.1'
-        response = request.get_response(ext_midware)
+        response = request.get_response(ser_midware)
         self.assertEqual(200, response.status_int)
         response_data = json.loads(response.body)
         self.assertEqual('bluegoo', response_data['flavor']['googoose'])
 
     def test_get_resources_with_mgr(self):
 
-        app = fakes.wsgi_app()
+        app = fakes.wsgi_app(serialization=base_wsgi.Middleware)
         ext_midware = extensions.ExtensionMiddleware(app)
+        ser_midware = wsgi.LazySerializationMiddleware(ext_midware)
         request = webob.Request.blank("/v1.1/123/flavors/1?chewing=newblue")
         request.environ['api.version'] = '1.1'
-        response = request.get_response(ext_midware)
+        response = request.get_response(ser_midware)
         self.assertEqual(200, response.status_int)
         response_data = json.loads(response.body)
         self.assertEqual('newblue', response_data['flavor']['googoose'])

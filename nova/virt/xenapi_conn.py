@@ -60,6 +60,7 @@ reactor thread if the VM.get_by_name_label or VM.get_record calls block.
 import json
 import random
 import sys
+import time
 import urlparse
 import xmlrpclib
 
@@ -222,7 +223,8 @@ class XenAPIConnection(driver.ComputeDriver):
         """
         self._vmops.inject_file(instance, b64_path, b64_contents)
 
-    def destroy(self, instance, network_info, cleanup=True):
+    def destroy(self, instance, network_info, block_device_info=None,
+                cleanup=True):
         """Destroy VM instance"""
         self._vmops.destroy(instance, network_info)
 
@@ -263,6 +265,10 @@ class XenAPIConnection(driver.ComputeDriver):
         """Power on the specified instance"""
         self._vmops.power_on(instance)
 
+    def poll_rebooting_instances(self, timeout):
+        """Poll for rebooting instances"""
+        self._vmops.poll_rebooting_instances(timeout)
+
     def poll_rescued_instances(self, timeout):
         """Poll for rescued instances"""
         self._vmops.poll_rescued_instances(timeout)
@@ -290,6 +296,25 @@ class XenAPIConnection(driver.ComputeDriver):
         """Return data about VM diagnostics"""
         return self._vmops.get_diagnostics(instance)
 
+    def get_all_bw_usage(self, start_time, stop_time=None):
+        """Return bandwidth usage info for each interface on each
+           running VM"""
+        bwusage = []
+        start_time = time.mktime(start_time.timetuple())
+        if stop_time:
+            stop_time = time.mktime(stop_time.timetuple())
+        for iusage in self._vmops.get_all_bw_usage(start_time, stop_time).\
+                      values():
+            for macaddr, usage in iusage.iteritems():
+                vi = db.virtual_interface_get_by_address(
+                                    context.get_admin_context(),
+                                    macaddr)
+                if vi:
+                    bwusage.append(dict(virtual_interface=vi,
+                                        bw_in=usage['bw_in'],
+                                        bw_out=usage['bw_out']))
+        return bwusage
+
     def get_console_output(self, instance):
         """Return snapshot of console"""
         return self._vmops.get_console_output(instance)
@@ -302,15 +327,17 @@ class XenAPIConnection(driver.ComputeDriver):
         xs_url = urlparse.urlparse(FLAGS.xenapi_connection_url)
         return xs_url.netloc
 
-    def attach_volume(self, instance_name, device_path, mountpoint):
+    def attach_volume(self, connection_info, instance_name, mountpoint):
         """Attach volume storage to VM instance"""
-        return self._volumeops.attach_volume(instance_name,
-                                               device_path,
-                                               mountpoint)
+        return self._volumeops.attach_volume(connection_info,
+                                             instance_name,
+                                             mountpoint)
 
-    def detach_volume(self, instance_name, mountpoint):
+    def detach_volume(self, connection_info, instance_name, mountpoint):
         """Detach volume storage to VM instance"""
-        return self._volumeops.detach_volume(instance_name, mountpoint)
+        return self._volumeops.detach_volume(connection_info,
+                                             instance_name,
+                                             mountpoint)
 
     def get_console_pool_info(self, console_type):
         xs_url = urlparse.urlparse(FLAGS.xenapi_connection_url)

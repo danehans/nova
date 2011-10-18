@@ -21,6 +21,7 @@ Tests For Compute
 """
 
 from copy import copy
+import mox
 
 from nova import compute
 from nova import context
@@ -32,6 +33,7 @@ from nova.scheduler import driver as scheduler_driver
 from nova import rpc
 from nova import test
 from nova import utils
+import nova
 
 from nova.compute import instance_types
 from nova.compute import manager as compute_manager
@@ -158,21 +160,6 @@ class ComputeTestCase(test.TestCase):
                   'user_id': self.user_id,
                   'project_id': self.project_id}
         return db.security_group_create(self.context, values)
-
-    def _get_dummy_instance(self):
-        """Get mock-return-value instance object
-           Use this when any testcase executed later than test_run_terminate
-        """
-        vol1 = models.Volume()
-        vol1['id'] = 1
-        vol2 = models.Volume()
-        vol2['id'] = 2
-        instance_ref = models.Instance()
-        instance_ref['id'] = 1
-        instance_ref['volumes'] = [vol1, vol2]
-        instance_ref['hostname'] = 'hostname-1'
-        instance_ref['host'] = 'dummy'
-        return instance_ref
 
     def test_create_instance_defaults_display_name(self):
         """Verify that an instance cannot be created without a display_name."""
@@ -462,6 +449,48 @@ class ComputeTestCase(test.TestCase):
         self.assert_(console)
         self.compute.terminate_instance(self.context, instance_id)
 
+    def test_add_fixed_ip_usage_notification(self):
+        def dummy(*args, **kwargs):
+            pass
+
+        self.stubs.Set(nova.network.API, 'add_fixed_ip_to_instance',
+                       dummy)
+        self.stubs.Set(nova.compute.manager.ComputeManager,
+                       'inject_network_info', dummy)
+        self.stubs.Set(nova.compute.manager.ComputeManager,
+                       'reset_network', dummy)
+
+        instance_id = self._create_instance()
+
+        self.assertEquals(len(test_notifier.NOTIFICATIONS), 0)
+        self.compute.add_fixed_ip_to_instance(self.context,
+                                              instance_id,
+                                              1)
+
+        self.assertEquals(len(test_notifier.NOTIFICATIONS), 1)
+        self.compute.terminate_instance(self.context, instance_id)
+
+    def test_remove_fixed_ip_usage_notification(self):
+        def dummy(*args, **kwargs):
+            pass
+
+        self.stubs.Set(nova.network.API, 'remove_fixed_ip_from_instance',
+                       dummy)
+        self.stubs.Set(nova.compute.manager.ComputeManager,
+                       'inject_network_info', dummy)
+        self.stubs.Set(nova.compute.manager.ComputeManager,
+                       'reset_network', dummy)
+
+        instance_id = self._create_instance()
+
+        self.assertEquals(len(test_notifier.NOTIFICATIONS), 0)
+        self.compute.remove_fixed_ip_from_instance(self.context,
+                                              instance_id,
+                                              1)
+
+        self.assertEquals(len(test_notifier.NOTIFICATIONS), 1)
+        self.compute.terminate_instance(self.context, instance_id)
+
     def test_run_instance_usage_notification(self):
         """Ensure run instance generates apropriate usage notification"""
         instance_id = self._create_instance()
@@ -471,7 +500,7 @@ class ComputeTestCase(test.TestCase):
         self.assertEquals(msg['priority'], 'INFO')
         self.assertEquals(msg['event_type'], 'compute.instance.create')
         payload = msg['payload']
-        self.assertEquals(payload['project_id'], self.project_id)
+        self.assertEquals(payload['tenant_id'], self.project_id)
         self.assertEquals(payload['user_id'], self.user_id)
         self.assertEquals(payload['instance_id'], instance_id)
         self.assertEquals(payload['instance_type'], 'm1.tiny')
@@ -490,12 +519,16 @@ class ComputeTestCase(test.TestCase):
         test_notifier.NOTIFICATIONS = []
         self.compute.terminate_instance(self.context, instance_id)
 
-        self.assertEquals(len(test_notifier.NOTIFICATIONS), 1)
+        self.assertEquals(len(test_notifier.NOTIFICATIONS), 2)
         msg = test_notifier.NOTIFICATIONS[0]
+        self.assertEquals(msg['priority'], 'INFO')
+        self.assertEquals(msg['event_type'], 'compute.instance.exists')
+
+        msg = test_notifier.NOTIFICATIONS[1]
         self.assertEquals(msg['priority'], 'INFO')
         self.assertEquals(msg['event_type'], 'compute.instance.delete')
         payload = msg['payload']
-        self.assertEquals(payload['project_id'], self.project_id)
+        self.assertEquals(payload['tenant_id'], self.project_id)
         self.assertEquals(payload['user_id'], self.user_id)
         self.assertEquals(payload['instance_id'], instance_id)
         self.assertEquals(payload['instance_type'], 'm1.tiny')
@@ -578,7 +611,7 @@ class ComputeTestCase(test.TestCase):
         self.assertEquals(msg['priority'], 'INFO')
         self.assertEquals(msg['event_type'], 'compute.instance.resize.prep')
         payload = msg['payload']
-        self.assertEquals(payload['project_id'], self.project_id)
+        self.assertEquals(payload['tenant_id'], self.project_id)
         self.assertEquals(payload['user_id'], self.user_id)
         self.assertEquals(payload['instance_id'], instance_id)
         self.assertEquals(payload['instance_type'], 'm1.tiny')
@@ -726,235 +759,124 @@ class ComputeTestCase(test.TestCase):
 
     def test_pre_live_migration_instance_has_no_fixed_ip(self):
         """Confirm raising exception if instance doesn't have fixed_ip."""
-        instance_ref = self._get_dummy_instance()
+        # creating instance testdata
+        instance_id = self._create_instance({'host': 'dummy'})
         c = context.get_admin_context()
-        i_id = instance_ref['id']
+        inst_ref = db.instance_get(c, instance_id)
+        topic = db.queue_get_for(c, FLAGS.compute_topic, inst_ref['host'])
 
-        dbmock = self.mox.CreateMock(db)
-        dbmock.instance_get(c, i_id).AndReturn(instance_ref)
-
-        self.compute.db = dbmock
-        self.mox.ReplayAll()
-        self.assertRaises(exception.NotFound,
+        # start test
+        self.assertRaises(exception.FixedIpNotFoundForInstance,
                           self.compute.pre_live_migration,
-                          c, instance_ref['id'], time=FakeTime())
+                          c, inst_ref['id'], time=FakeTime())
+        # cleanup
+        db.instance_destroy(c, instance_id)
 
-    def test_pre_live_migration_instance_has_volume(self):
+    def test_pre_live_migration_works_correctly(self):
         """Confirm setup_compute_volume is called when volume is mounted."""
-        def fake_nw_info(*args, **kwargs):
-            return [(0, {'ips':['dummy']})]
-
-        i_ref = self._get_dummy_instance()
+        # creating instance testdata
+        instance_id = self._create_instance({'host': 'dummy'})
         c = context.get_admin_context()
+        inst_ref = db.instance_get(c, instance_id)
+        topic = db.queue_get_for(c, FLAGS.compute_topic, inst_ref['host'])
 
-        self._setup_other_managers()
-        dbmock = self.mox.CreateMock(db)
-        volmock = self.mox.CreateMock(self.volume_manager)
-        drivermock = self.mox.CreateMock(self.compute_driver)
+        # creating mocks
+        self.mox.StubOutWithMock(self.compute.driver, 'pre_live_migration')
+        self.compute.driver.pre_live_migration({'block_device_mapping': []})
+        dummy_nw_info = [[None, {'ips':'1.1.1.1'}]]
+        self.mox.StubOutWithMock(self.compute, '_get_instance_nw_info')
+        self.compute._get_instance_nw_info(c, mox.IsA(inst_ref)
+            ).AndReturn(dummy_nw_info)
+        self.mox.StubOutWithMock(self.compute.driver, 'plug_vifs')
+        self.compute.driver.plug_vifs(mox.IsA(inst_ref), dummy_nw_info)
+        self.mox.StubOutWithMock(self.compute.driver,
+                                 'ensure_filtering_rules_for_instance')
+        self.compute.driver.ensure_filtering_rules_for_instance(
+            mox.IsA(inst_ref), dummy_nw_info)
 
-        dbmock.instance_get(c, i_ref['id']).AndReturn(i_ref)
-        for i in range(len(i_ref['volumes'])):
-            vid = i_ref['volumes'][i]['id']
-            volmock.setup_compute_volume(c, vid).InAnyOrder('g1')
-        drivermock.plug_vifs(i_ref, fake_nw_info())
-        drivermock.ensure_filtering_rules_for_instance(i_ref, fake_nw_info())
-
-        self.stubs.Set(self.compute, '_get_instance_nw_info', fake_nw_info)
-        self.compute.db = dbmock
-        self.compute.volume_manager = volmock
-        self.compute.driver = drivermock
-
+        # start test
         self.mox.ReplayAll()
-        ret = self.compute.pre_live_migration(c, i_ref['id'])
+        ret = self.compute.pre_live_migration(c, inst_ref['id'])
         self.assertEqual(ret, None)
 
-    def test_pre_live_migration_instance_has_no_volume(self):
-        """Confirm log meg when instance doesn't mount any volumes."""
-        def fake_nw_info(*args, **kwargs):
-            return [(0, {'ips':['dummy']})]
-
-        i_ref = self._get_dummy_instance()
-        i_ref['volumes'] = []
-        c = context.get_admin_context()
-
-        self._setup_other_managers()
-        dbmock = self.mox.CreateMock(db)
-        drivermock = self.mox.CreateMock(self.compute_driver)
-
-        dbmock.instance_get(c, i_ref['id']).AndReturn(i_ref)
-        self.mox.StubOutWithMock(compute_manager.LOG, 'info')
-        compute_manager.LOG.info(_("%s has no volume."), i_ref['hostname'])
-        drivermock.plug_vifs(i_ref, fake_nw_info())
-        drivermock.ensure_filtering_rules_for_instance(i_ref, fake_nw_info())
-
-        self.stubs.Set(self.compute, '_get_instance_nw_info', fake_nw_info)
-        self.compute.db = dbmock
-        self.compute.driver = drivermock
-
-        self.mox.ReplayAll()
-        ret = self.compute.pre_live_migration(c, i_ref['id'], time=FakeTime())
-        self.assertEqual(ret, None)
-
-    def test_pre_live_migration_setup_compute_node_fail(self):
-        """Confirm operation setup_compute_network() fails.
-
-        It retries and raise exception when timeout exceeded.
-
-        """
-        def fake_nw_info(*args, **kwargs):
-            return [(0, {'ips':['dummy']})]
-
-        i_ref = self._get_dummy_instance()
-        c = context.get_admin_context()
-
-        self._setup_other_managers()
-        dbmock = self.mox.CreateMock(db)
-        netmock = self.mox.CreateMock(self.network_manager)
-        volmock = self.mox.CreateMock(self.volume_manager)
-        drivermock = self.mox.CreateMock(self.compute_driver)
-
-        dbmock.instance_get(c, i_ref['id']).AndReturn(i_ref)
-        for i in range(len(i_ref['volumes'])):
-            volmock.setup_compute_volume(c, i_ref['volumes'][i]['id'])
-        for i in range(FLAGS.live_migration_retry_count):
-            drivermock.plug_vifs(i_ref, fake_nw_info()).\
-                AndRaise(exception.ProcessExecutionError())
-
-        self.stubs.Set(self.compute, '_get_instance_nw_info', fake_nw_info)
-        self.compute.db = dbmock
-        self.compute.network_manager = netmock
-        self.compute.volume_manager = volmock
-        self.compute.driver = drivermock
-
-        self.mox.ReplayAll()
-        self.assertRaises(exception.ProcessExecutionError,
-                          self.compute.pre_live_migration,
-                          c, i_ref['id'], time=FakeTime())
-
-    def test_live_migration_works_correctly_with_volume(self):
-        """Confirm check_for_export to confirm volume health check."""
-        i_ref = self._get_dummy_instance()
-        c = context.get_admin_context()
-        topic = db.queue_get_for(c, FLAGS.compute_topic, i_ref['host'])
-
-        dbmock = self.mox.CreateMock(db)
-        dbmock.instance_get(c, i_ref['id']).AndReturn(i_ref)
-        self.mox.StubOutWithMock(rpc, 'call')
-        rpc.call(c, FLAGS.volume_topic, {"method": "check_for_export",
-                                         "args": {'instance_id': i_ref['id']}})
-        dbmock.queue_get_for(c, FLAGS.compute_topic, i_ref['host']).\
-                             AndReturn(topic)
-        rpc.call(c, topic, {"method": "pre_live_migration",
-                            "args": {'instance_id': i_ref['id'],
-                                     'block_migration': False,
-                                     'disk': None}})
-
-        self.mox.StubOutWithMock(self.compute.driver, 'live_migration')
-        self.compute.driver.live_migration(c, i_ref, i_ref['host'],
-                                  self.compute.post_live_migration,
-                                  self.compute.rollback_live_migration,
-                                  False)
-
-        self.compute.db = dbmock
-        self.mox.ReplayAll()
-        ret = self.compute.live_migration(c, i_ref['id'], i_ref['host'])
-        self.assertEqual(ret, None)
+        # cleanup
+        db.instance_destroy(c, instance_id)
 
     def test_live_migration_dest_raises_exception(self):
         """Confirm exception when pre_live_migration fails."""
-        i_ref = self._get_dummy_instance()
+        # creating instance testdata
+        instance_id = self._create_instance({'host': 'dummy'})
         c = context.get_admin_context()
-        topic = db.queue_get_for(c, FLAGS.compute_topic, i_ref['host'])
+        inst_ref = db.instance_get(c, instance_id)
+        topic = db.queue_get_for(c, FLAGS.compute_topic, inst_ref['host'])
+        # creating volume testdata
+        volume_id = 1
+        db.volume_create(c, {'id': volume_id})
+        values = {'instance_id': instance_id, 'device_name': '/dev/vdc',
+            'delete_on_termination': False, 'volume_id': volume_id}
+        db.block_device_mapping_create(c, values)
 
-        dbmock = self.mox.CreateMock(db)
-        dbmock.instance_get(c, i_ref['id']).AndReturn(i_ref)
+        # creating mocks
         self.mox.StubOutWithMock(rpc, 'call')
         rpc.call(c, FLAGS.volume_topic, {"method": "check_for_export",
-                                         "args": {'instance_id': i_ref['id']}})
-        dbmock.queue_get_for(c, FLAGS.compute_topic, i_ref['host']).\
-                             AndReturn(topic)
+                                         "args": {'instance_id': instance_id}})
         rpc.call(c, topic, {"method": "pre_live_migration",
-                            "args": {'instance_id': i_ref['id'],
-                                     'block_migration': False,
+                            "args": {'instance_id': instance_id,
+                                     'block_migration': True,
                                      'disk': None}}).\
-                            AndRaise(rpc.RemoteError('', '', ''))
-        dbmock.instance_update(c, i_ref['id'], {'vm_state': vm_states.ACTIVE,
-                                                'task_state': None,
-                                                'host': i_ref['host']})
-        for v in i_ref['volumes']:
-            dbmock.volume_update(c, v['id'], {'status': 'in-use'})
-            # mock for volume_api.remove_from_compute
-            rpc.call(c, topic, {"method": "remove_volume",
-                                "args": {'volume_id': v['id']}})
+                            AndRaise(rpc.common.RemoteError('', '', ''))
+        # mocks for rollback
+        rpc.call(c, topic, {"method": "remove_volume_connection",
+                            "args": {'instance_id': instance_id,
+                                     'volume_id': volume_id}})
+        rpc.cast(c, topic, {"method": "rollback_live_migration_at_destination",
+                            "args": {'instance_id': inst_ref['id']}})
 
-        self.compute.db = dbmock
+        # start test
         self.mox.ReplayAll()
         self.assertRaises(rpc.RemoteError,
                           self.compute.live_migration,
-                          c, i_ref['id'], i_ref['host'])
+                          c, instance_id, inst_ref['host'], True)
 
-    def test_live_migration_dest_raises_exception_no_volume(self):
-        """Same as above test(input pattern is different) """
-        i_ref = self._get_dummy_instance()
-        i_ref['volumes'] = []
-        c = context.get_admin_context()
-        topic = db.queue_get_for(c, FLAGS.compute_topic, i_ref['host'])
+        # cleanup
+        for bdms in db.block_device_mapping_get_all_by_instance(c,
+                                                                instance_id):
+            db.block_device_mapping_destroy(c, bdms['id'])
+        db.volume_destroy(c, volume_id)
+        db.instance_destroy(c, instance_id)
 
-        dbmock = self.mox.CreateMock(db)
-        dbmock.instance_get(c, i_ref['id']).AndReturn(i_ref)
-        dbmock.queue_get_for(c, FLAGS.compute_topic, i_ref['host']).\
-                             AndReturn(topic)
-        self.mox.StubOutWithMock(rpc, 'call')
-        rpc.call(c, topic, {"method": "pre_live_migration",
-                            "args": {'instance_id': i_ref['id'],
-                                     'block_migration': False,
-                                     'disk': None}}).\
-                            AndRaise(rpc.RemoteError('', '', ''))
-        dbmock.instance_update(c, i_ref['id'], {'vm_state': vm_states.ACTIVE,
-                                                'task_state': None,
-                                                'host': i_ref['host']})
-
-        self.compute.db = dbmock
-        self.mox.ReplayAll()
-        self.assertRaises(rpc.RemoteError,
-                          self.compute.live_migration,
-                          c, i_ref['id'], i_ref['host'])
-
-    def test_live_migration_works_correctly_no_volume(self):
+    def test_live_migration_works_correctly(self):
         """Confirm live_migration() works as expected correctly."""
-        i_ref = self._get_dummy_instance()
-        i_ref['volumes'] = []
+        # creating instance testdata
+        instance_id = self._create_instance({'host': 'dummy'})
         c = context.get_admin_context()
-        topic = db.queue_get_for(c, FLAGS.compute_topic, i_ref['host'])
+        inst_ref = db.instance_get(c, instance_id)
+        topic = db.queue_get_for(c, FLAGS.compute_topic, inst_ref['host'])
 
-        dbmock = self.mox.CreateMock(db)
-        dbmock.instance_get(c, i_ref['id']).AndReturn(i_ref)
+        # create
         self.mox.StubOutWithMock(rpc, 'call')
-        dbmock.queue_get_for(c, FLAGS.compute_topic, i_ref['host']).\
-                             AndReturn(topic)
         rpc.call(c, topic, {"method": "pre_live_migration",
-                            "args": {'instance_id': i_ref['id'],
+                            "args": {'instance_id': instance_id,
                                      'block_migration': False,
                                      'disk': None}})
-        self.mox.StubOutWithMock(self.compute.driver, 'live_migration')
-        self.compute.driver.live_migration(c, i_ref, i_ref['host'],
-                                  self.compute.post_live_migration,
-                                  self.compute.rollback_live_migration,
-                                  False)
 
-        self.compute.db = dbmock
+        # start test
         self.mox.ReplayAll()
-        ret = self.compute.live_migration(c, i_ref['id'], i_ref['host'])
+        ret = self.compute.live_migration(c, inst_ref['id'], inst_ref['host'])
         self.assertEqual(ret, None)
+
+        # cleanup
+        db.instance_destroy(c, instance_id)
 
     def test_post_live_migration_working_correctly(self):
         """Confirm post_live_migration() works as expected correctly."""
         dest = 'desthost'
         flo_addr = '1.2.1.2'
 
-        # Preparing datas
+        # creating testdata
         c = context.get_admin_context()
-        instance_id = self._create_instance()
+        instance_id = self._create_instance({'state_description': 'migrating',
+                                             'state': power_state.PAUSED})
         i_ref = db.instance_get(c, instance_id)
         db.instance_update(c, i_ref['id'], {'vm_state': vm_states.MIGRATING,
                                             'power_state': power_state.PAUSED})
@@ -964,14 +886,8 @@ class ComputeTestCase(test.TestCase):
         fix_ref = db.fixed_ip_get_by_address(c, fix_addr)
         flo_ref = db.floating_ip_create(c, {'address': flo_addr,
                                         'fixed_ip_id': fix_ref['id']})
-        # reload is necessary before setting mocks
-        i_ref = db.instance_get(c, instance_id)
 
-        # Preparing mocks
-        self.mox.StubOutWithMock(self.compute.volume_manager,
-                                 'remove_compute_volume')
-        for v in i_ref['volumes']:
-            self.compute.volume_manager.remove_compute_volume(c, v['id'])
+        # creating mocks
         self.mox.StubOutWithMock(self.compute.driver, 'unfilter_instance')
         self.compute.driver.unfilter_instance(i_ref, [])
         self.mox.StubOutWithMock(rpc, 'call')
@@ -979,18 +895,18 @@ class ComputeTestCase(test.TestCase):
             {"method": "post_live_migration_at_destination",
              "args": {'instance_id': i_ref['id'], 'block_migration': False}})
 
-        # executing
+        # start test
         self.mox.ReplayAll()
         ret = self.compute.post_live_migration(c, i_ref, dest)
 
-        # make sure every data is rewritten to dest
+        # make sure every data is rewritten to destinatioin hostname.
         i_ref = db.instance_get(c, i_ref['id'])
         c1 = (i_ref['host'] == dest)
         flo_refs = db.floating_ip_get_all_by_host(c, dest)
         c2 = (len(flo_refs) != 0 and flo_refs[0]['address'] == flo_addr)
-
-        # post operaton
         self.assertTrue(c1 and c2)
+
+        # cleanup
         db.instance_destroy(c, instance_id)
         db.volume_destroy(c, v_ref['id'])
         db.floating_ip_destroy(c, flo_addr)
@@ -1541,6 +1457,34 @@ class ComputeTestCase(test.TestCase):
             for instance in refs:
                 self.assertEqual(instance['reservation_id'], resv_id)
                 db.instance_destroy(self.context, instance['id'])
+
+    def test_instance_name_template(self):
+        """Test the instance_name template"""
+        self.flags(instance_name_template='instance-%d')
+        instance_id = self._create_instance()
+        i_ref = db.instance_get(self.context, instance_id)
+        self.assertEqual(i_ref['name'], 'instance-%d' % i_ref['id'])
+        db.instance_destroy(self.context, i_ref['id'])
+
+        self.flags(instance_name_template='instance-%(uuid)s')
+        instance_id = self._create_instance()
+        i_ref = db.instance_get(self.context, instance_id)
+        self.assertEqual(i_ref['name'], 'instance-%s' % i_ref['uuid'])
+        db.instance_destroy(self.context, i_ref['id'])
+
+        self.flags(instance_name_template='%(id)d-%(uuid)s')
+        instance_id = self._create_instance()
+        i_ref = db.instance_get(self.context, instance_id)
+        self.assertEqual(i_ref['name'], '%d-%s' %
+                (i_ref['id'], i_ref['uuid']))
+        db.instance_destroy(self.context, i_ref['id'])
+
+        # not allowed.. default is uuid
+        self.flags(instance_name_template='%(name)s')
+        instance_id = self._create_instance()
+        i_ref = db.instance_get(self.context, instance_id)
+        self.assertEqual(i_ref['name'], i_ref['uuid'])
+        db.instance_destroy(self.context, i_ref['id'])
 
 
 class ComputeTestMinRamMinDisk(test.TestCase):

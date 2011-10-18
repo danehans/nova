@@ -21,7 +21,7 @@ SQLAlchemy models for nova data.
 """
 
 from sqlalchemy.orm import relationship, backref, object_mapper
-from sqlalchemy import Column, Integer, String, schema
+from sqlalchemy import Column, Integer, BigInteger, String, schema
 from sqlalchemy import ForeignKey, DateTime, Boolean, Text, Float
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.declarative import declarative_base
@@ -169,7 +169,21 @@ class Instance(BASE, NovaBase):
 
     @property
     def name(self):
-        base_name = FLAGS.instance_name_template % self.id
+        try:
+            base_name = FLAGS.instance_name_template % self.id
+        except TypeError:
+            # Support templates like "uuid-%(uuid)s", etc.
+            info = {}
+            for key, value in self.iteritems():
+                # prevent recursion if someone specifies %(name)s
+                # %(name)s will not be valid.
+                if key == 'name':
+                    continue
+                info[key] = value
+            try:
+                base_name = FLAGS.instance_name_template % info
+            except KeyError:
+                base_name = self.uuid
         if getattr(self, '_rescue', False):
             base_name += "-rescue"
         return base_name
@@ -293,6 +307,7 @@ class InstanceTypes(BASE, NovaBase):
     swap = Column(Integer, nullable=False, default=0)
     rxtx_quota = Column(Integer, nullable=False, default=0)
     rxtx_cap = Column(Integer, nullable=False, default=0)
+    vcpu_weight = Column(Integer, nullable=True)
 
     instances = relationship(Instance,
                            backref=backref('instance_type', uselist=False),
@@ -470,21 +485,7 @@ class BlockDeviceMapping(BASE, NovaBase):
     # for no device to suppress devices.
     no_device = Column(Boolean, nullable=True)
 
-
-class ExportDevice(BASE, NovaBase):
-    """Represates a shelf and blade that a volume can be exported on."""
-    __tablename__ = 'export_devices'
-    __table_args__ = (schema.UniqueConstraint("shelf_id", "blade_id"),
-                      {'mysql_engine': 'InnoDB'})
-    id = Column(Integer, primary_key=True)
-    shelf_id = Column(Integer)
-    blade_id = Column(Integer)
-    volume_id = Column(Integer, ForeignKey('volumes.id'), nullable=True)
-    volume = relationship(Volume,
-                          backref=backref('export_device', uselist=False),
-                          foreign_keys=volume_id,
-                          primaryjoin='and_(ExportDevice.volume_id==Volume.id,'
-                                           'ExportDevice.deleted==False)')
+    connection_info = Column(Text, nullable=True)
 
 
 class IscsiTarget(BASE, NovaBase):
@@ -858,6 +859,18 @@ class AgentBuild(BASE, NovaBase):
     version = Column(String(255))
     url = Column(String(255))
     md5hash = Column(String(255))
+
+
+class BandwidthUsage(BASE, NovaBase):
+    """Cache for instance bandwidth usage data pulled from the hypervisor"""
+    __tablename__ = 'bw_usage_cache'
+    id = Column(Integer, primary_key=True, nullable=False)
+    instance_id = Column(Integer, nullable=False)
+    network_label = Column(String(255))
+    start_period = Column(DateTime, nullable=False)
+    last_refreshed = Column(DateTime)
+    bw_in = Column(BigInteger)
+    bw_out = Column(BigInteger)
 
 
 def register_models():
