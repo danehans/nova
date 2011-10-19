@@ -62,11 +62,19 @@ class FaultWrapper(base_wsgi.Middleware):
             return req.get_response(self.application)
         except Exception as ex:
             LOG.exception(_("Caught error: %s"), unicode(ex))
-            exc = webob.exc.HTTPInternalServerError(explanation=unicode(ex))
+            exc = webob.exc.HTTPInternalServerError()
             return faults.Fault(exc)
 
 
-class ProjectMapper(routes.Mapper):
+class APIMapper(routes.Mapper):
+    def routematch(self, url=None, environ=None):
+        if url is "":
+            result = self._match("", environ)
+            return result[0], result[1]
+        return routes.Mapper.routematch(self, url, environ)
+
+
+class ProjectMapper(APIMapper):
 
     def resource(self, member_name, collection_name, **kwargs):
         if not ('parent_resource' in kwargs):
@@ -125,6 +133,8 @@ class APIRouter(base_wsgi.Router):
         mapper.connect("versions", "/",
                     controller=versions.create_resource(),
                     action='show')
+
+        mapper.redirect("", "/")
 
         mapper.resource("console", "consoles",
                     controller=consoles.create_resource(),
