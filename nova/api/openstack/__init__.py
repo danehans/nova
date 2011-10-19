@@ -24,12 +24,8 @@ import routes
 import webob.dec
 import webob.exc
 
-from nova import flags
-from nova import log as logging
-from nova import wsgi as base_wsgi
 from nova.api.openstack import accounts
 from nova.api.openstack import faults
-from nova.api.openstack import backup_schedules
 from nova.api.openstack import consoles
 from nova.api.openstack import flavors
 from nova.api.openstack import images
@@ -38,11 +34,13 @@ from nova.api.openstack import ips
 from nova.api.openstack import limits
 from nova.api.openstack import servers
 from nova.api.openstack import server_metadata
-from nova.api.openstack import shared_ip_groups
 from nova.api.openstack import users
 from nova.api.openstack import versions
 from nova.api.openstack import wsgi
 from nova.api.openstack import zones
+from nova import flags
+from nova import log as logging
+from nova import wsgi as base_wsgi
 
 
 LOG = logging.getLogger('nova.api.openstack')
@@ -64,11 +62,19 @@ class FaultWrapper(base_wsgi.Middleware):
             return req.get_response(self.application)
         except Exception as ex:
             LOG.exception(_("Caught error: %s"), unicode(ex))
-            exc = webob.exc.HTTPInternalServerError(explanation=unicode(ex))
+            exc = webob.exc.HTTPInternalServerError()
             return faults.Fault(exc)
 
 
-class ProjectMapper(routes.Mapper):
+class APIMapper(routes.Mapper):
+    def routematch(self, url=None, environ=None):
+        if url is "":
+            result = self._match("", environ)
+            return result[0], result[1]
+        return routes.Mapper.routematch(self, url, environ)
+
+
+class ProjectMapper(APIMapper):
 
     def resource(self, member_name, collection_name, **kwargs):
         if not ('parent_resource' in kwargs):
@@ -97,19 +103,11 @@ class APIRouter(base_wsgi.Router):
 
     def __init__(self, ext_mgr=None):
         self.server_members = {}
-        mapper = self._mapper()
+        mapper = ProjectMapper()
         self._setup_routes(mapper)
         super(APIRouter, self).__init__(mapper)
 
-    def _mapper(self):
-        return routes.Mapper()
-
     def _setup_routes(self, mapper):
-        raise NotImplementedError(_("You must implement _setup_routes."))
-
-    def _setup_base_routes(self, mapper, version):
-        """Routes common to all versions."""
-
         server_members = self.server_members
         server_members['action'] = 'POST'
         if FLAGS.allow_admin_api:
@@ -127,14 +125,16 @@ class APIRouter(base_wsgi.Router):
                             collection={'detail': 'GET'})
 
             mapper.resource("zone", "zones",
-                        controller=zones.create_resource(version),
+                        controller=zones.create_resource(),
                         collection={'detail': 'GET',
                                     'info': 'GET',
                                     'select': 'POST'})
 
         mapper.connect("versions", "/",
-                    controller=versions.create_resource(version),
+                    controller=versions.create_resource(),
                     action='show')
+
+        mapper.redirect("", "/")
 
         mapper.resource("console", "consoles",
                     controller=consoles.create_resource(),
@@ -142,52 +142,24 @@ class APIRouter(base_wsgi.Router):
                     collection_name='servers'))
 
         mapper.resource("server", "servers",
-                        controller=servers.create_resource(version),
+                        controller=servers.create_resource(),
                         collection={'detail': 'GET'},
                         member=self.server_members)
 
-        mapper.resource("ip", "ips", controller=ips.create_resource(version),
+        mapper.resource("ip", "ips", controller=ips.create_resource(),
                         parent_resource=dict(member_name='server',
                                              collection_name='servers'))
 
         mapper.resource("image", "images",
-                        controller=images.create_resource(version),
+                        controller=images.create_resource(),
                         collection={'detail': 'GET'})
 
         mapper.resource("limit", "limits",
-                        controller=limits.create_resource(version))
+                        controller=limits.create_resource())
 
         mapper.resource("flavor", "flavors",
-                        controller=flavors.create_resource(version),
+                        controller=flavors.create_resource(),
                         collection={'detail': 'GET'})
-
-        super(APIRouter, self).__init__(mapper)
-
-
-class APIRouterV10(APIRouter):
-    """Define routes specific to OpenStack API V1.0."""
-
-    def _setup_routes(self, mapper):
-        self._setup_base_routes(mapper, '1.0')
-
-        mapper.resource("shared_ip_group", "shared_ip_groups",
-                        collection={'detail': 'GET'},
-                        controller=shared_ip_groups.create_resource())
-
-        mapper.resource("backup_schedule", "backup_schedule",
-                        controller=backup_schedules.create_resource(),
-                        parent_resource=dict(member_name='server',
-                        collection_name='servers'))
-
-
-class APIRouterV11(APIRouter):
-    """Define routes specific to OpenStack API V1.1."""
-
-    def _mapper(self):
-        return ProjectMapper()
-
-    def _setup_routes(self, mapper):
-        self._setup_base_routes(mapper, '1.1')
 
         image_metadata_controller = image_metadata.create_resource()
 

@@ -200,6 +200,11 @@ class ComputeDriver(object):
         # TODO(Vek): Need to pass context in for access to auth_token
         raise NotImplementedError()
 
+    def get_all_bw_usage(self, start_time, stop_time=None):
+        """Return bandwidth usage info for each interface on each
+           running VM"""
+        raise NotImplementedError()
+
     def get_host_ip_addr(self):
         """
         Retrieves the IP address of the dom0
@@ -479,6 +484,11 @@ class ComputeDriver(object):
         """inject network info for specified instance"""
         # TODO(Vek): Need to pass context in for access to auth_token
         pass
+
+    def poll_rebooting_instances(self, timeout):
+        """Poll for rebooting instances"""
+        # TODO(Vek): Need to pass context in for access to auth_token
+        raise NotImplementedError()
 
     def poll_rescued_instances(self, timeout):
         """Poll for rescued instances"""

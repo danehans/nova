@@ -447,10 +447,17 @@ class LibvirtConnection(driver.ComputeDriver):
             metadata['properties']['architecture'] = arch
 
         source_format = base.get('disk_format') or 'raw'
+        if source_format == 'ami':
+            # NOTE(vish): assume amis are raw
+            source_format = 'raw'
         image_format = FLAGS.snapshot_image_format or source_format
         if FLAGS.use_cow_images:
             source_format = 'qcow2'
-        metadata['disk_format'] = image_format
+        # NOTE(vish): glance forces ami disk format to be ami
+        if base.get('disk_format') == 'ami':
+            metadata['disk_format'] = 'ami'
+        else:
+            metadata['disk_format'] = image_format
 
         if 'container_format' in base:
             metadata['container_format'] = base['container_format']
@@ -612,6 +619,10 @@ class LibvirtConnection(driver.ComputeDriver):
         f.close()
         os.remove(unrescue_xml_path)
         self.reboot(instance, network_info, xml=unrescue_xml)
+
+    @exception.wrap_exception()
+    def poll_rebooting_instances(self, timeout):
+        pass
 
     @exception.wrap_exception()
     def poll_rescued_instances(self, timeout):

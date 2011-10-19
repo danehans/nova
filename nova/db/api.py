@@ -590,9 +590,10 @@ def instance_get_project_vpn(context, project_id):
     return IMPL.instance_get_project_vpn(context, project_id)
 
 
-def instance_set_state(context, instance_id, state, description=None):
-    """Set the state of an instance."""
-    return IMPL.instance_set_state(context, instance_id, state, description)
+def instance_get_all_hung_in_rebooting(context, reboot_window, session=None):
+    """Get all instances stuck in a rebooting state."""
+    return IMPL.instance_get_all_hung_in_rebooting(context, reboot_window,
+            session)
 
 
 def instance_update(context, instance_id, values):
@@ -1438,6 +1439,30 @@ def agent_build_destroy(context, agent_update_id):
 def agent_build_update(context, agent_build_id, values):
     """Update agent build entry."""
     IMPL.agent_build_update(context, agent_build_id, values)
+
+
+####################
+
+
+def bw_usage_get_by_instance(context, instance_id, start_period):
+    """Return bw usages for an instance in a given audit period."""
+    return IMPL.bw_usage_get_by_instance(context, instance_id, start_period)
+
+
+def bw_usage_update(context,
+                    instance_id,
+                    network_label,
+                    start_period,
+                    bw_in, bw_out,
+                    session=None):
+    """Update cached bw usage for an instance and network
+       Creates new record if needed."""
+    return IMPL.bw_usage_update(context,
+                                instance_id,
+                                network_label,
+                                start_period,
+                                bw_in, bw_out,
+                                session=None)
 
 
 ####################
