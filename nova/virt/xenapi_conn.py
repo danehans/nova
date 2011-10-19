@@ -366,16 +366,20 @@ class XenAPIConnection(driver.ComputeDriver):
         host_stats = self.get_host_stats(refresh=True)
 
         # Updating host information
+        total_ram_mb = host_stats['host_memory_total'] / (1024 * 1024)
+        free_ram_mb = host_stats['host_memory_free'] / (1024 * 1024)
+        total_disk_gb = host_stats['disk_total'] / (1024 * 1024 * 1024)
+        used_disk_gb = host_stats['disk_used'] / (1024 * 1024 * 1024)
+
         dic = {'vcpus': 0,
-               'memory_mb': host_stats['host_memory_total'],
-               'local_gb': host_stats['disk_total'],
+               'memory_mb': total_ram_mb,
+               'local_gb': total_disk_gb,
                'vcpus_used': 0,
-               'memory_mb_used': host_stats['host_memory_total'] - \
-                                 host_stats['host_memory_free'],
-               'local_gb_used': host_stats['disk_used'],
+               'memory_mb_used': total_ram_mb - free_ram_mb,
+               'local_gb_used': used_disk_gb,
                'hypervisor_type': 'xen',
-               'hypervisor_version': '?',
-               'cpu_info': '?'}
+               'hypervisor_version': 0,
+               'cpu_info': host_stats['host_cpu_info']['cpu_count']}
 
         compute_node_ref = service_ref['compute_node']
         if not compute_node_ref:
@@ -609,7 +613,6 @@ class HostState(object):
                         host_memory.get('free-computed', 0)
             del data['host_memory']
         self._stats = data
-
 
 def _parse_xmlrpc_value(val):
     """Parse the given value as if it were an XML-RPC value. This is
