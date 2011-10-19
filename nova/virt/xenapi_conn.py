@@ -364,18 +364,25 @@ class XenAPIConnection(driver.ComputeDriver):
             raise exception.ComputeServiceUnavailable(host=host)
 
         host_stats = self.get_host_stats(refresh=True)
+        LOG.debug(_('**** HOST STATS %s ') % host_stats)#pep8
 
         # Updating host information
+        total_ram_mb = host_stats['host_memory_total'] / (1024 * 1024)
+        free_ram_mb = host_stats['host_memory_free'] / (1024 * 1024)
+        total_disk_gb = host_stats['disk_total'] / (1024 * 1024 * 1024)
+        used_disk_gb = host_stats['disk_used'] / (1024 * 1024 * 1024)
+
         dic = {'vcpus': 0,
-               'memory_mb': host_stats['host_memory_total'],
-               'local_gb': host_stats['disk_total'],
+               'memory_mb': total_ram_mb,
+               'local_gb': total_disk_gb,
                'vcpus_used': 0,
-               'memory_mb_used': host_stats['host_memory_total'] - \
-                                 host_stats['host_memory_free'],
-               'local_gb_used': host_stats['disk_used'],
+               'memory_mb_used': total_ram_mb - free_ram_mb,
+               'local_gb_used': used_disk_gb,
                'hypervisor_type': 'xen',
-               'hypervisor_version': '?',
-               'cpu_info': '?'}
+               'hypervisor_version': 0,
+               'cpu_info': host_stats['host_cpu_info']['cpu_count']}
+
+        LOG.debug(_('**** FINAL HOST STATS %s ') % dic)#pep8
 
         compute_node_ref = service_ref['compute_node']
         if not compute_node_ref:
@@ -579,6 +586,7 @@ class HostState(object):
         task_id = random.randint(-80000, -70000)
         task = self._session.async_call_plugin("xenhost", "host_data", {})
         task_result = self._session.wait_for_task(task, task_id)
+        LOG.debug(_('**** HOST STATS #1 - %s ') % task_result)#pep8
         if not task_result:
             task_result = json.dumps("")
         try:
@@ -587,6 +595,7 @@ class HostState(object):
             # Invalid JSON object
             LOG.error(_("Unable to get updated status: %s") % e)
             return
+        LOG.debug(_('**** HOST STATS #2 - Getting SR '))#pep8
         # Get the SR usage
         try:
             sr_ref = vm_utils.safe_find_sr(self._session)
@@ -595,6 +604,7 @@ class HostState(object):
             LOG.error(_("Unable to get SR for this host: %s") % e)
             return
         sr_rec = self._session.get_xenapi().SR.get_record(sr_ref)
+        LOG.debug(_('**** HOST STATS #3 - SR %s ' % sr_rec))#pep8
         total = int(sr_rec["virtual_allocation"])
         used = int(sr_rec["physical_utilisation"])
         data["disk_total"] = total
@@ -609,7 +619,7 @@ class HostState(object):
                         host_memory.get('free-computed', 0)
             del data['host_memory']
         self._stats = data
-
+        LOG.debug(_('**** HOST STATS RAW %s ') % data)#pep8
 
 def _parse_xmlrpc_value(val):
     """Parse the given value as if it were an XML-RPC value. This is
