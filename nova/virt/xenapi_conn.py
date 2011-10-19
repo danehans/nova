@@ -614,6 +614,7 @@ class HostState(object):
             del data['host_memory']
         self._stats = data
 
+
 def _parse_xmlrpc_value(val):
     """Parse the given value as if it were an XML-RPC value. This is
     sometimes used as the format for the task.result field."""
