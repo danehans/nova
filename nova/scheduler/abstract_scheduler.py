@@ -303,7 +303,8 @@ class AbstractScheduler(driver.Scheduler):
             instance_type = request_spec['instance_type']
             requested_ram = instance_type['memory_mb']
             free_ram_mb = capabilities['free_ram_mb']
-            LOG.debug(_("****** Requested %(requested_ram)s Available %(free_ram_mb)s") % locals())
+            LOG.debug(_("****** Requested %(requested_ram)s Available "
+                    "%(free_ram_mb)s") % locals())
             return free_ram_mb >= requested_ram
 
         return [(host, services) for host, services in host_list
