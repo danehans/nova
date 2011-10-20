@@ -294,6 +294,10 @@ def get_networks_for_instance(context, instance):
         fixed_addr = fixed_ip['address']
         network = fixed_ip['network']
         if not network:
+            name = instance['name']
+            ip = fixed_ip['address']
+            LOG.warn(_("Instance %(name)s has stale IP "
+                    "address: %(ip)s (no network)") % locals())
             continue
         label = network.get('label', None)
         if label is None:
@@ -301,15 +305,21 @@ def get_networks_for_instance(context, instance):
         if label not in networks:
             networks[label] = {'ips': [], 'floating_ips': []}
             # Only add IPv6 address once
-            cidr_v6 = network['cidr_v6']
+            cidr_v6 = network.get('cidr_v6')
             if FLAGS.use_ipv6 and cidr_v6:
                 vif = fixed_ip['virtual_interface']
-                ipv6_addr = ipv6.to_global(cidr_v6, vif['address'],
-                        network['project_id'])
-                networks[label]['ips'].append(_emit_addr(ipv6_addr, 6))
+                if vif:
+                    ipv6_addr = ipv6.to_global(cidr_v6, vif['address'],
+                            network['project_id'])
+                    networks[label]['ips'].append(_emit_addr(ipv6_addr, 6))
+                else:
+                    name = instance['name']
+                    ip = fixed_ip['address']
+                    LOG.warn(_("Instance %(name)s has stale IP "
+                            "address: %(ip)s (no vif)") % locals())
         nw_dict = networks[label]
         nw_dict['ips'].append(_emit_addr(fixed_addr, 4))
-        for floating_ip in fixed_ip['floating_ips']:
+        for floating_ip in fixed_ip.get('floating_ips', []):
             float_addr = floating_ip['address']
             nw_dict['floating_ips'].append(_emit_addr(float_addr, 4))
     return networks
