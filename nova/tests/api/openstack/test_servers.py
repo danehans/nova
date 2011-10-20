@@ -198,6 +198,7 @@ def stub_instance(id, user_id='fake', project_id='fake', host=None,
         server_name = "reservation_%s" % (reservation_id, )
 
     instance = {
+        "name": str(id),
         "id": int(id),
         "created_at": datetime.datetime(2010, 10, 10, 12, 0, 0),
         "updated_at": datetime.datetime(2010, 11, 11, 11, 0, 0),
@@ -514,9 +515,22 @@ class ServersControllerTest(test.TestCase):
     def test_get_server_by_id_malformed_networks(self):
         def fake_instance_get(context, instance_id):
             instance = return_server_by_id(context, instance_id)
-            instance['fixed_ips'] = [dict(network=None,
-                    address='1.2.3.4', floating_ips=None,
-                    virtual_interface=None)]
+            instance['fixed_ips'] = [dict(network=None, address='1.2.3.4')]
+            return instance
+
+        self.stubs.Set(nova.db.api, 'instance_get', fake_instance_get)
+
+        req = fakes.HTTPRequest.blank('/v1.1/fake/servers/1')
+        res_dict = self.controller.show(req, '1')
+
+        self.assertEqual(res_dict['server']['id'], 1)
+        self.assertEqual(res_dict['server']['name'], 'server1')
+
+    def test_get_server_by_id_malformed_vif(self):
+        def fake_instance_get(context, instance_id):
+            instance = return_server_by_id(context, instance_id)
+            instance['fixed_ips'] = [dict(network={'label': 'meow'},
+                    address='1.2.3.4', virtual_interface=None)]
             return instance
 
         self.stubs.Set(nova.db.api, 'instance_get', fake_instance_get)
