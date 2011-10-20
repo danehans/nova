@@ -172,8 +172,13 @@ class ZoneManager(object):
         for instance in instances:
             disk = instance['local_gb']
             ram = instance['memory_mb']
-            compute = compute_map[instance['host']]
-            self.consume_resources(compute, disk, ram)
+            compute_host = instance['host']
+            compute = compute_map.get(compute_host)
+            if compute:
+                self.consume_resources(compute, disk, ram)
+            else:
+                logging.warn(_("Compute host %(compute_host)s not in DB") %
+                        locals())
 
         return compute_map.items()
 
