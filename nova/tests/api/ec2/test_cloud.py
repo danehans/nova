@@ -79,16 +79,11 @@ def get_instances_with_fixed_ips(orig_func, *args, **kwargs):
     """
     instances = orig_func(*args, **kwargs)
     if isinstance(instances, list):
-        ret_instances = []
         for instance in instances:
-            inst = dict(instance.iteritems())
-            inst['fixed_ips'] = get_fake_fixed_ips()
-            ret_instances.append(inst)
-        return ret_instances
-
-    inst = dict(instances.iteritems())
-    inst['fixed_ips'] = get_fake_fixed_ips()
-    return inst
+            instance['fixed_ips'] = get_fake_fixed_ips()
+    else:
+        instances['fixed_ips'] = get_fake_fixed_ips()
+    return instances
 
 
 class CloudTestCase(test.TestCase):

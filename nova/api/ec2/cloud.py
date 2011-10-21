@@ -246,16 +246,16 @@ class CloudController(object):
         fixed_ips = instance['fixed_ips']
         for fixed_ip in fixed_ips:
             fixed_addr = fixed_ip['address']
-            network = fixed_ip['network']
-            if not network:
+            network = fixed_ip.get('network')
+            vif = fixed_ip.get('virtual_interface')
+            if not network or not vif:
                 name = instance['name']
                 ip = fixed_ip['address']
                 LOG.warn(_("Instance %(name)s has stale IP "
-                        "address: %(ip)s (no network)") % locals())
+                        "address: %(ip)s (no network or vif)") % locals())
                 continue
             cidr_v6 = network.get('cidr_v6')
-            vif = fixed_ip.get('virtual_interface')
-            if FLAGS.use_ipv6 and cidr_v6 and vif:
+            if FLAGS.use_ipv6 and cidr_v6:
                 ipv6_addr = ipv6.to_global(cidr_v6, vif['address'],
                         network['project_id'])
                 if ipv6_addr not in ip_info['fixed_ip6s']:
