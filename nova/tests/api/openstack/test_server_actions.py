@@ -57,6 +57,7 @@ def stub_instance(id, metadata=None, image_ref="10", flavor_id="1",
 
     instance = {
         "id": int(id),
+        "name": str(id),
         "created_at": datetime.datetime(2010, 10, 10, 12, 0, 0),
         "updated_at": datetime.datetime(2010, 11, 11, 11, 0, 0),
         "admin_pass": "",

@@ -66,7 +66,7 @@ def stub_max_server_metadata():
 
 
 def return_server(context, server_id):
-    return {'id': server_id}
+    return {'id': server_id, 'name': 'fake'}
 
 
 def return_server_nonexistant(context, server_id):

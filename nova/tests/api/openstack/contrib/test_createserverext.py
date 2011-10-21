@@ -46,6 +46,7 @@ INVALID_NETWORKS = [('invalid', 'invalid-ip-address')]
 
 INSTANCE = {
              "id": 1,
+             "name": "fake",
              "display_name": "test_server",
              "uuid": FAKE_UUID,
              "user_id": 'fake_user_id',
