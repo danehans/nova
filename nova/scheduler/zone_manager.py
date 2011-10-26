@@ -166,6 +166,8 @@ class ZoneManager(object):
 
             compute_map[host] = dict(free_disk_gb=all_disk,
                                      free_ram_mb=all_ram)
+            # reserve 2G for dom0
+            self.consume_resources(compute_map[host], 0, 2048)
 
         # "Consume" resources from the host the instance resides on.
         instances = db.instance_get_all(context)
