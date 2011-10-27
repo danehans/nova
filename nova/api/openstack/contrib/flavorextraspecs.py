@@ -30,7 +30,7 @@ class FlavorExtraSpecsController(object):
     """ The flavor extra specs API controller for the Openstack API """
 
     def _get_extra_specs(self, context, flavor_id):
-        extra_specs = db.api.instance_type_extra_specs_get(context, flavor_id)
+        extra_specs = db.instance_type_extra_specs_get(context, flavor_id)
         specs_dict = {}
         for key, value in extra_specs.iteritems():
             specs_dict[key] = value
@@ -51,7 +51,7 @@ class FlavorExtraSpecsController(object):
         context = req.environ['nova.context']
         specs = body.get('extra_specs')
         try:
-            db.api.instance_type_extra_specs_update_or_create(context,
+            db.instance_type_extra_specs_update_or_create(context,
                                                               flavor_id,
                                                               specs)
         except quota.QuotaError as error:
@@ -68,7 +68,7 @@ class FlavorExtraSpecsController(object):
             expl = _('Request body contains too many items')
             raise exc.HTTPBadRequest(explanation=expl)
         try:
-            db.api.instance_type_extra_specs_update_or_create(context,
+            db.instance_type_extra_specs_update_or_create(context,
                                                                flavor_id,
                                                                body)
         except quota.QuotaError as error:
@@ -88,7 +88,7 @@ class FlavorExtraSpecsController(object):
     def delete(self, req, flavor_id, id):
         """ Deletes an existing extra spec """
         context = req.environ['nova.context']
-        db.api.instance_type_extra_specs_delete(context, flavor_id, id)
+        db.instance_type_extra_specs_delete(context, flavor_id, id)
 
     def _handle_quota_error(self, error):
         """Reraise quota errors as api-specific http exceptions."""
@@ -98,22 +98,12 @@ class FlavorExtraSpecsController(object):
 
 
 class Flavorextraspecs(extensions.ExtensionDescriptor):
+    """Instance type (flavor) extra specs"""
 
-    def get_name(self):
-        return "FlavorExtraSpecs"
-
-    def get_alias(self):
-        return "os-flavor-extra-specs"
-
-    def get_description(self):
-        return "Instance type (flavor) extra specs"
-
-    def get_namespace(self):
-        return \
-         "http://docs.openstack.org/ext/flavor_extra_specs/api/v1.1"
-
-    def get_updated(self):
-        return "2011-06-23T00:00:00+00:00"
+    name = "FlavorExtraSpecs"
+    alias = "os-flavor-extra-specs"
+    namespace = "http://docs.openstack.org/ext/flavor_extra_specs/api/v1.1"
+    updated = "2011-06-23T00:00:00+00:00"
 
     def get_resources(self):
         resources = []

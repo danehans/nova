@@ -16,14 +16,15 @@
 #    under the License.
 
 import json
-import webob
+
 from lxml import etree
+import webob
 
 from nova.api.openstack import flavors
-import nova.db.api
+from nova.api.openstack import xmlutil
+import nova.compute.instance_types
 from nova import exception
 from nova import test
-from nova.api.openstack import xmlutil
 from nova.tests.api.openstack import fakes
 from nova import wsgi
 
@@ -48,30 +49,33 @@ FAKE_FLAVORS = {
 }
 
 
-def fake_instance_type_get_by_flavor_id(context, flavorid):
+def fake_instance_type_get_by_flavor_id(flavorid):
     return FAKE_FLAVORS['flavor %s' % flavorid]
 
 
-def fake_instance_type_get_all(context, inactive=False, filters=None):
+def fake_instance_type_get_all(inactive=False, filters=None):
     def reject_min(db_attr, filter_attr):
         return filter_attr in filters and\
                int(flavor[db_attr]) < int(filters[filter_attr])
 
     filters = filters or {}
-    for flavor in FAKE_FLAVORS.values():
+    output = {}
+    for (flavor_name, flavor) in FAKE_FLAVORS.items():
         if reject_min('memory_mb', 'min_memory_mb'):
             continue
         elif reject_min('local_gb', 'min_local_gb'):
             continue
 
-        yield flavor
+        output[flavor_name] = flavor
+
+    return output
 
 
-def empty_instance_type_get_all(context, inactive=False, filters=None):
+def empty_instance_type_get_all(inactive=False, filters=None):
     return {}
 
 
-def return_instance_type_not_found(context, flavor_id):
+def return_instance_type_not_found(flavor_id):
     raise exception.InstanceTypeNotFound(flavor_id=flavor_id)
 
 
@@ -80,27 +84,29 @@ class FlavorsTest(test.TestCase):
         super(FlavorsTest, self).setUp()
         fakes.stub_out_networking(self.stubs)
         fakes.stub_out_rate_limiting(self.stubs)
-        self.stubs.Set(nova.db.api, "instance_type_get_all",
+        self.stubs.Set(nova.compute.instance_types, "get_all_types",
                        fake_instance_type_get_all)
-        self.stubs.Set(nova.db.api, "instance_type_get_by_flavor_id",
+        self.stubs.Set(nova.compute.instance_types,
+                       "get_instance_type_by_flavor_id",
                        fake_instance_type_get_by_flavor_id)
+
+        self.controller = flavors.Controller()
 
     def tearDown(self):
         self.stubs.UnsetAll()
         super(FlavorsTest, self).tearDown()
 
     def test_get_flavor_by_invalid_id(self):
-        self.stubs.Set(nova.db.api, "instance_type_get_by_flavor_id",
+        self.stubs.Set(nova.compute.instance_types,
+                       "get_instance_type_by_flavor_id",
                        return_instance_type_not_found)
-        req = webob.Request.blank('/v1.1/fake/flavors/asdf')
-        res = req.get_response(fakes.wsgi_app())
-        self.assertEqual(res.status_int, 404)
+        req = fakes.HTTPRequest.blank('/v1.1/fake/flavors/asdf')
+        self.assertRaises(webob.exc.HTTPNotFound,
+                          self.controller.show, req, 'asdf')
 
     def test_get_flavor_by_id(self):
-        req = webob.Request.blank('/v1.1/fake/flavors/1')
-        res = req.get_response(fakes.wsgi_app())
-        self.assertEqual(res.status_int, 200)
-        flavor = json.loads(res.body)
+        req = fakes.HTTPRequest.blank('/v1.1/fake/flavors/1')
+        flavor = self.controller.show(req, '1')
         expected = {
             "flavor": {
                 "id": "1",
@@ -126,10 +132,8 @@ class FlavorsTest(test.TestCase):
         self.assertEqual(flavor, expected)
 
     def test_get_flavor_list(self):
-        req = webob.Request.blank('/v1.1/fake/flavors')
-        res = req.get_response(fakes.wsgi_app())
-        self.assertEqual(res.status_int, 200)
-        flavor = json.loads(res.body)
+        req = fakes.HTTPRequest.blank('/v1.1/fake/flavors')
+        flavor = self.controller.index(req)
         expected = {
             "flavors": [
                 {
@@ -165,10 +169,8 @@ class FlavorsTest(test.TestCase):
         self.assertEqual(flavor, expected)
 
     def test_get_flavor_list_detail(self):
-        req = webob.Request.blank('/v1.1/fake/flavors/detail')
-        res = req.get_response(fakes.wsgi_app())
-        self.assertEqual(res.status_int, 200)
-        flavor = json.loads(res.body)
+        req = fakes.HTTPRequest.blank('/v1.1/fake/flavors/detail')
+        flavor = self.controller.detail(req)
         expected = {
             "flavors": [
                 {
@@ -216,22 +218,18 @@ class FlavorsTest(test.TestCase):
         self.assertEqual(flavor, expected)
 
     def test_get_empty_flavor_list(self):
-        self.stubs.Set(nova.db.api, "instance_type_get_all",
+        self.stubs.Set(nova.compute.instance_types, "get_all_types",
                        empty_instance_type_get_all)
 
-        req = webob.Request.blank('/v1.1/fake/flavors')
-        res = req.get_response(fakes.wsgi_app())
-        self.assertEqual(res.status_int, 200)
-        flavors = json.loads(res.body)["flavors"]
-        expected = []
+        req = fakes.HTTPRequest.blank('/v1.1/fake/flavors')
+        flavors = self.controller.index(req)
+        expected = {'flavors': []}
         self.assertEqual(flavors, expected)
 
     def test_get_flavor_list_filter_min_ram(self):
         """Flavor lists may be filtered by minRam"""
-        req = webob.Request.blank('/v1.1/fake/flavors?minRam=512')
-        res = req.get_response(fakes.wsgi_app())
-        self.assertEqual(res.status_int, 200)
-        flavor = json.loads(res.body)
+        req = fakes.HTTPRequest.blank('/v1.1/fake/flavors?minRam=512')
+        flavor = self.controller.index(req)
         expected = {
             "flavors": [
                 {
@@ -254,10 +252,8 @@ class FlavorsTest(test.TestCase):
 
     def test_get_flavor_list_filter_min_disk(self):
         """Flavor lists may be filtered by minRam"""
-        req = webob.Request.blank('/v1.1/fake/flavors?minDisk=20')
-        res = req.get_response(fakes.wsgi_app())
-        self.assertEqual(res.status_int, 200)
-        flavor = json.loads(res.body)
+        req = fakes.HTTPRequest.blank('/v1.1/fake/flavors?minDisk=20')
+        flavor = self.controller.index(req)
         expected = {
             "flavors": [
                 {
@@ -282,11 +278,9 @@ class FlavorsTest(test.TestCase):
         """Tests that filtering work on flavor details and that minRam and
         minDisk filters can be combined
         """
-        req = webob.Request.blank(
-            '/v1.1/fake/flavors/detail?minRam=256&minDisk=20')
-        res = req.get_response(fakes.wsgi_app())
-        self.assertEqual(res.status_int, 200)
-        flavor = json.loads(res.body)
+        req = fakes.HTTPRequest.blank('/v1.1/fake/flavors/detail'
+                                      '?minRam=256&minDisk=20')
+        flavor = self.controller.detail(req)
         expected = {
             "flavors": [
                 {
@@ -315,11 +309,8 @@ class FlavorsTest(test.TestCase):
 
     def test_get_flavor_list_detail_bogus_min_ram(self):
         """Tests that bogus minRam filtering values are ignored"""
-        req = webob.Request.blank(
-            '/v1.1/fake/flavors/detail?minRam=16GB')
-        res = req.get_response(fakes.wsgi_app())
-        self.assertEqual(res.status_int, 200)
-        flavor = json.loads(res.body)
+        req = fakes.HTTPRequest.blank('/v1.1/fake/flavors/detail?minRam=16GB')
+        flavor = self.controller.detail(req)
         expected = {
             "flavors": [
                 {
@@ -368,11 +359,8 @@ class FlavorsTest(test.TestCase):
 
     def test_get_flavor_list_detail_bogus_min_disk(self):
         """Tests that bogus minDisk filtering values are ignored"""
-        req = webob.Request.blank(
-            '/v1.1/fake/flavors/detail?minDisk=16GB')
-        res = req.get_response(fakes.wsgi_app())
-        self.assertEqual(res.status_int, 200)
-        flavor = json.loads(res.body)
+        req = fakes.HTTPRequest.blank('/v1.1/fake/flavors/detail?minDisk=16GB')
+        flavor = self.controller.detail(req)
         expected = {
             "flavors": [
                 {

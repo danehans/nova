@@ -107,10 +107,10 @@ def stub_out_key_pair_funcs(stubs, have_key_pair=True):
         return []
 
     if have_key_pair:
-        stubs.Set(nova.db.api, 'key_pair_get_all_by_user', key_pair)
-        stubs.Set(nova.db.api, 'key_pair_get', one_key_pair)
+        stubs.Set(nova.db, 'key_pair_get_all_by_user', key_pair)
+        stubs.Set(nova.db, 'key_pair_get', one_key_pair)
     else:
-        stubs.Set(nova.db.api, 'key_pair_get_all_by_user', no_key_pair)
+        stubs.Set(nova.db, 'key_pair_get_all_by_user', no_key_pair)
 
 
 def stub_out_image_service(stubs):
@@ -149,22 +149,34 @@ def stub_out_networking(stubs):
     stubs.Set(nova.flags, '_get_my_ip', get_my_ip)
 
 
-def stub_out_compute_api_snapshot(stubs):
+class stub_out_compute_api_snapshot(object):
+
+    def __init__(self, stubs):
+        self.stubs = stubs
+        self.extra_props_last_call = None
+        stubs.Set(nova.compute.API, 'snapshot', self.snapshot)
+
     def snapshot(self, context, instance_id, name, extra_properties=None):
+        self.extra_props_last_call = extra_properties
         props = dict(instance_id=instance_id, instance_ref=instance_id)
         props.update(extra_properties or {})
         return dict(id='123', status='ACTIVE', name=name, properties=props)
-    stubs.Set(nova.compute.API, 'snapshot', snapshot)
 
 
-def stub_out_compute_api_backup(stubs):
+class stub_out_compute_api_backup(object):
+
+    def __init__(self, stubs):
+        self.stubs = stubs
+        self.extra_props_last_call = None
+        stubs.Set(nova.compute.API, 'backup', self.backup)
+
     def backup(self, context, instance_id, name, backup_type, rotation,
                extra_properties=None):
+        self.extra_props_last_call = extra_properties
         props = dict(instance_id=instance_id, instance_ref=instance_id,
                      backup_type=backup_type, rotation=rotation)
         props.update(extra_properties or {})
         return dict(id='123', status='ACTIVE', name=name, properties=props)
-    stubs.Set(nova.compute.API, 'backup', backup)
 
 
 def stub_out_nw_api_get_instance_nw_info(stubs, func=None):
@@ -225,7 +237,8 @@ def _make_image_fixtures():
     image_id += 1
 
     # Snapshot for User 1
-    server_ref = 'http://localhost/v1.1/servers/42'
+    uuid = 'aa640691-d1a7-4a67-9d3c-d35ee6b3cc74'
+    server_ref = 'http://localhost/v1.1/servers/' + uuid
     snapshot_properties = {'instance_ref': server_ref, 'user_id': 'fake'}
     for status in ('queued', 'saving', 'active', 'killed',
                    'deleted', 'pending_delete'):

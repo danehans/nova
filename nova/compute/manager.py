@@ -43,23 +43,24 @@ import time
 
 from eventlet import greenthread
 
-import nova.context
 from nova import block_device
+import nova.context
+from nova.compute import instance_types
+from nova.compute import power_state
+from nova.compute import task_states
+from nova.compute.utils import notify_usage_exists
+from nova.compute import vm_states
 from nova import exception
 from nova import flags
 import nova.image
 from nova import log as logging
 from nova import manager
 from nova import network
+from nova.notifier import api as notifier
 from nova import rpc
 from nova import utils
-from nova import volume
-from nova.compute import power_state
-from nova.compute import task_states
-from nova.compute import vm_states
-from nova.notifier import api as notifier
-from nova.compute.utils import notify_usage_exists
 from nova.virt import driver
+from nova import volume
 
 
 FLAGS = flags.FLAGS
@@ -342,8 +343,7 @@ class ComputeManager(manager.SchedulerDependentManager):
                 return
 
             instance_type_id = instance['instance_type_id']
-            instance_type = self.db.instance_type_get(context,
-                    instance_type_id)
+            instance_type = instance_types.get_instance_type(instance_type_id)
             allowed_size_gb = instance_type['local_gb']
 
             # NOTE(jk0): Since libvirt uses local_gb as a secondary drive, we
@@ -901,8 +901,7 @@ class ComputeManager(manager.SchedulerDependentManager):
                 utils.generate_password(FLAGS.password_length))
         network_info = self._get_instance_nw_info(context, instance_ref)
 
-        # NOTE(blamar): None of the virt drivers use the 'callback' param
-        self.driver.rescue(context, instance_ref, None, network_info)
+        self.driver.rescue(context, instance_ref, network_info)
 
         current_power_state = self._get_power_state(context, instance_ref)
         self._instance_update(context,
@@ -921,8 +920,7 @@ class ComputeManager(manager.SchedulerDependentManager):
         instance_ref = self.db.instance_get(context, instance_id)
         network_info = self._get_instance_nw_info(context, instance_ref)
 
-        # NOTE(blamar): None of the virt drivers use the 'callback' param
-        self.driver.unrescue(instance_ref, None, network_info)
+        self.driver.unrescue(instance_ref, network_info)
 
         current_power_state = self._get_power_state(context, instance_ref)
         self._instance_update(context,
@@ -985,8 +983,8 @@ class ComputeManager(manager.SchedulerDependentManager):
         instance_ref = self.db.instance_get_by_uuid(context,
                 migration_ref.instance_uuid)
 
-        instance_type = self.db.instance_type_get(context,
-                migration_ref['old_instance_type_id'])
+        old_instance_type = migration_ref['old_instance_type_id']
+        instance_type = instance_types.get_instance_type(old_instance_type)
 
         # Just roll back the record. There's no need to resize down since
         # the 'old' VM already has the preferred attributes
@@ -1029,10 +1027,10 @@ class ComputeManager(manager.SchedulerDependentManager):
             msg = _('Migration error: destination same as source!')
             raise exception.Error(msg)
 
-        old_instance_type = self.db.instance_type_get(context,
-                instance_ref['instance_type_id'])
-        new_instance_type = self.db.instance_type_get(context,
-                instance_type_id)
+        old_instance_type_id = instance_ref['instance_type_id']
+        old_instance_type = instance_types.get_instance_type(
+                old_instance_type_id)
+        new_instance_type = instance_types.get_instance_type(instance_type_id)
 
         migration_ref = self.db.migration_create(context,
                 {'instance_uuid': instance_ref['uuid'],
@@ -1103,10 +1101,11 @@ class ComputeManager(manager.SchedulerDependentManager):
         resize_instance = False
         instance_ref = self.db.instance_get_by_uuid(context,
                 migration_ref.instance_uuid)
-        if migration_ref['old_instance_type_id'] != \
-           migration_ref['new_instance_type_id']:
-            instance_type = self.db.instance_type_get(context,
-                    migration_ref['new_instance_type_id'])
+        old_instance_type_id = migration_ref['old_instance_type_id']
+        new_instance_type_id = migration_ref['new_instance_type_id']
+        if old_instance_type_id != new_instance_type_id:
+            instance_type = instance_types.get_instance_type(
+                    new_instance_type_id)
             self.db.instance_update(context, instance_ref.uuid,
                    dict(instance_type_id=instance_type['id'],
                         memory_mb=instance_type['memory_mb'],
@@ -1173,7 +1172,7 @@ class ComputeManager(manager.SchedulerDependentManager):
         context = context.elevated()
 
         instance_ref = self.db.instance_get(context, instance_id)
-        self.driver.pause(instance_ref, lambda result: None)
+        self.driver.pause(instance_ref)
 
         current_power_state = self._get_power_state(context, instance_ref)
         self._instance_update(context,
@@ -1190,7 +1189,7 @@ class ComputeManager(manager.SchedulerDependentManager):
         context = context.elevated()
 
         instance_ref = self.db.instance_get(context, instance_id)
-        self.driver.unpause(instance_ref, lambda result: None)
+        self.driver.unpause(instance_ref)
 
         current_power_state = self._get_power_state(context, instance_ref)
         self._instance_update(context,
@@ -1226,7 +1225,7 @@ class ComputeManager(manager.SchedulerDependentManager):
         context = context.elevated()
 
         instance_ref = self.db.instance_get(context, instance_id)
-        self.driver.suspend(instance_ref, lambda result: None)
+        self.driver.suspend(instance_ref)
 
         current_power_state = self._get_power_state(context, instance_ref)
         self._instance_update(context,
@@ -1243,7 +1242,7 @@ class ComputeManager(manager.SchedulerDependentManager):
         context = context.elevated()
 
         instance_ref = self.db.instance_get(context, instance_id)
-        self.driver.resume(instance_ref, lambda result: None)
+        self.driver.resume(instance_ref)
 
         current_power_state = self._get_power_state(context, instance_ref)
         self._instance_update(context,

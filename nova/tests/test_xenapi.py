@@ -654,13 +654,13 @@ class XenAPIVMTestCase(test.TestCase):
     def test_rescue(self):
         instance = self._create_instance()
         conn = xenapi_conn.get_connection(False)
-        conn.rescue(self.context, instance, None, [])
+        conn.rescue(self.context, instance, [])
 
     def test_unrescue(self):
         instance = self._create_instance()
         conn = xenapi_conn.get_connection(False)
         # Ensure that it will not unrescue a non-rescued instance.
-        self.assertRaises(Exception, conn.unrescue, instance, None)
+        self.assertRaises(Exception, conn.unrescue, instance)
 
     def test_finish_revert_migration(self):
         instance = self._create_instance()
@@ -1072,8 +1072,11 @@ class FakeSession(object):
               'free-computed': 40}
         return json.dumps({'host_memory': vm})
 
-    def get_xenapi(self):
-        return FakeXenApi()
+    def call_xenapi(self, method, *args):
+        f = FakeXenApi()
+        for m in method.split('.'):
+            f = getattr(f, m)
+        return f(*args)
 
 
 class HostStateTestCase(test.TestCase):

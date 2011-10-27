@@ -115,19 +115,29 @@ def get_pagination_params(request):
 
     """
     params = {}
-    for param in ['marker', 'limit']:
-        if not param in request.GET:
-            continue
-        try:
-            params[param] = int(request.GET[param])
-        except ValueError:
-            msg = _('%s param must be an integer') % param
-            raise webob.exc.HTTPBadRequest(explanation=msg)
-        if params[param] < 0:
-            msg = _('%s param must be positive') % param
-            raise webob.exc.HTTPBadRequest(explanation=msg)
-
+    if 'limit' in request.GET:
+        params['limit'] = _get_limit_param(request)
+    if 'marker' in request.GET:
+        params['marker'] = _get_marker_param(request)
     return params
+
+
+def _get_limit_param(request):
+    """Extract integer limit from request or fail"""
+    try:
+        limit = int(request.GET['limit'])
+    except ValueError:
+        msg = _('limit param must be an integer')
+        raise webob.exc.HTTPBadRequest(explanation=msg)
+    if limit < 0:
+        msg = _('limit param must be positive')
+        raise webob.exc.HTTPBadRequest(explanation=msg)
+    return limit
+
+
+def _get_marker_param(request):
+    """Extract marker id from request or fail"""
+    return request.GET['marker']
 
 
 def limited(items, request, max_limit=FLAGS.osapi_max_limit):
@@ -180,7 +190,7 @@ def limited_by_marker(items, request, max_limit=FLAGS.osapi_max_limit):
     if marker:
         start_index = -1
         for i, item in enumerate(items):
-            if item['id'] == marker:
+            if item['id'] == marker or item.get('uuid') == marker:
                 start_index = i + 1
                 break
         if start_index < 0:
@@ -290,34 +300,33 @@ def get_networks_for_instance(context, instance):
 
     networks = {}
     fixed_ips = instance['fixed_ips']
+    ipv6_addrs_seen = {}
     for fixed_ip in fixed_ips:
         fixed_addr = fixed_ip['address']
         network = fixed_ip['network']
-        if not network:
+        vif = fixed_ip.get('virtual_interface')
+        if not network or not vif:
             name = instance['name']
             ip = fixed_ip['address']
             LOG.warn(_("Instance %(name)s has stale IP "
-                    "address: %(ip)s (no network)") % locals())
+                    "address: %(ip)s (no network or vif)") % locals())
             continue
         label = network.get('label', None)
         if label is None:
             continue
         if label not in networks:
             networks[label] = {'ips': [], 'floating_ips': []}
-            # Only add IPv6 address once
-            cidr_v6 = network.get('cidr_v6')
-            if FLAGS.use_ipv6 and cidr_v6:
-                vif = fixed_ip['virtual_interface']
-                if vif:
-                    ipv6_addr = ipv6.to_global(cidr_v6, vif['address'],
-                            network['project_id'])
-                    networks[label]['ips'].append(_emit_addr(ipv6_addr, 6))
-                else:
-                    name = instance['name']
-                    ip = fixed_ip['address']
-                    LOG.warn(_("Instance %(name)s has stale IP "
-                            "address: %(ip)s (no vif)") % locals())
         nw_dict = networks[label]
+        cidr_v6 = network.get('cidr_v6')
+        if FLAGS.use_ipv6 and cidr_v6:
+            ipv6_addr = ipv6.to_global(cidr_v6, vif['address'],
+                    network['project_id'])
+            # Only add same IPv6 address once.  It's possible we've
+            # seen it before if there was a previous fixed_ip with
+            # same network and vif as this one
+            if not ipv6_addrs_seen.get(ipv6_addr):
+                nw_dict['ips'].append(_emit_addr(ipv6_addr, 6))
+                ipv6_addrs_seen[ipv6_addr] = True
         nw_dict['ips'].append(_emit_addr(fixed_addr, 4))
         for floating_ip in fixed_ip.get('floating_ips', []):
             float_addr = floating_ip['address']

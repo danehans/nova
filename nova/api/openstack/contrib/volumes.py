@@ -19,6 +19,7 @@ from webob import exc
 import webob
 
 from nova import compute
+from nova import db
 from nova import exception
 from nova import flags
 from nova import log as logging
@@ -200,8 +201,8 @@ def _translate_attachment_summary_view(_context, vol):
     d['id'] = volume_id
 
     d['volumeId'] = volume_id
-    if vol.get('instance_id'):
-        d['serverId'] = vol['instance_id']
+    if vol.get('instance'):
+        d['serverId'] = vol['instance']['uuid']
     if vol.get('mountpoint'):
         d['device'] = vol['mountpoint']
 
@@ -245,7 +246,8 @@ class VolumeAttachmentController(object):
             LOG.debug("volume_id not found")
             return faults.Fault(exc.HTTPNotFound())
 
-        if str(vol['instance_id']) != server_id:
+        instance = vol['instance']
+        if instance is None or str(instance['uuid']) != server_id:
             LOG.debug("instance_id != server_id")
             return faults.Fault(exc.HTTPNotFound())
 
@@ -307,7 +309,8 @@ class VolumeAttachmentController(object):
         except exception.NotFound:
             return faults.Fault(exc.HTTPNotFound())
 
-        if str(vol['instance_id']) != server_id:
+        instance = vol['instance']
+        if instance is None or str(instance['uuid']) != server_id:
             LOG.debug("instance_id != server_id")
             return faults.Fault(exc.HTTPNotFound())
 
@@ -339,20 +342,12 @@ class BootFromVolumeController(servers.Controller):
 
 
 class Volumes(extensions.ExtensionDescriptor):
-    def get_name(self):
-        return "Volumes"
+    """Volumes support"""
 
-    def get_alias(self):
-        return "os-volumes"
-
-    def get_description(self):
-        return "Volumes support"
-
-    def get_namespace(self):
-        return "http://docs.openstack.org/ext/volumes/api/v1.1"
-
-    def get_updated(self):
-        return "2011-03-25T00:00:00+00:00"
+    name = "Volumes"
+    alias = "os-volumes"
+    namespace = "http://docs.openstack.org/ext/volumes/api/v1.1"
+    updated = "2011-03-25T00:00:00+00:00"
 
     def get_resources(self):
         resources = []

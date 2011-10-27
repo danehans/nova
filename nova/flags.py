@@ -297,6 +297,8 @@ DEFINE_integer('glance_port', 9292, 'default glance port')
 DEFINE_list('glance_api_servers',
             ['%s:%d' % (FLAGS.glance_host, FLAGS.glance_port)],
             'list of glance api servers available to nova (host:port)')
+DEFINE_integer('glance_num_retries', 0,
+               'The number of times to retry downloading an image from glance')
 DEFINE_integer('s3_port', 3333, 's3 port')
 DEFINE_string('s3_host', '$my_ip', 's3 host (for infrastructure)')
 DEFINE_string('s3_dmz', '$my_ip', 's3 dmz ip (for instances)')
@@ -341,8 +343,9 @@ DEFINE_string('ec2_dmz_host', '$my_ip', 'internal ip of api server')
 DEFINE_integer('ec2_port', 8773, 'cloud controller port')
 DEFINE_string('ec2_scheme', 'http', 'prefix for ec2')
 DEFINE_string('ec2_path', '/services/Cloud', 'suffix for ec2')
-DEFINE_string('osapi_extensions_path', '/var/lib/nova/extensions',
-               'default directory for nova extensions')
+DEFINE_multistring('osapi_extension',
+                   ['nova.api.openstack.contrib.standard_extensions'],
+                   'osapi extension to load')
 DEFINE_string('osapi_host', '$my_ip', 'ip of api server')
 DEFINE_string('osapi_scheme', 'http', 'prefix for openstack')
 DEFINE_integer('osapi_port', 8774, 'OpenStack API port')

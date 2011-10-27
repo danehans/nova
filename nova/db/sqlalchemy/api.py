@@ -129,7 +129,7 @@ def require_instance_exists(f):
     """
 
     def wrapper(context, instance_id, *args, **kwargs):
-        db.api.instance_get(context, instance_id)
+        db.instance_get(context, instance_id)
         return f(context, instance_id, *args, **kwargs)
     wrapper.__name__ = f.__name__
     return wrapper
@@ -143,7 +143,7 @@ def require_volume_exists(f):
     """
 
     def wrapper(context, volume_id, *args, **kwargs):
-        db.api.volume_get(context, volume_id)
+        db.volume_get(context, volume_id)
         return f(context, volume_id, *args, **kwargs)
     wrapper.__name__ = f.__name__
     return wrapper
@@ -3382,7 +3382,7 @@ def instance_type_get(context, id):
                     first()
 
     if not inst_type:
-        raise exception.InstanceTypeNotFound(instance_type=id)
+        raise exception.InstanceTypeNotFound(instance_type_id=id)
     else:
         return _dict_with_extra_specs(inst_type)
 
@@ -3402,13 +3402,8 @@ def instance_type_get_by_name(context, name):
 
 
 @require_context
-def instance_type_get_by_flavor_id(context, id):
+def instance_type_get_by_flavor_id(context, flavor_id):
     """Returns a dict describing specific flavor_id"""
-    try:
-        flavor_id = int(id)
-    except ValueError:
-        raise exception.FlavorNotFound(flavor_id=id)
-
     session = get_session()
     inst_type = session.query(models.InstanceTypes).\
                                     options(joinedload('extra_specs')).\

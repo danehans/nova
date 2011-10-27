@@ -905,7 +905,7 @@ class API(base.Base):
 
     def get_instance_type(self, context, instance_type_id):
         """Get an instance type by instance type id."""
-        return self.db.instance_type_get(context, instance_type_id)
+        return instance_types.get_instance_type(instance_type_id)
 
     def get(self, context, instance_id):
         """Get a single instance with the given instance_id."""
@@ -917,7 +917,11 @@ class API(base.Base):
             instance = self.db.instance_get_by_uuid(context, uuid)
         else:
             instance = self.db.instance_get(context, instance_id)
-        return dict(instance.iteritems())
+
+        inst = dict(instance.iteritems())
+        # NOTE(comstud): Doesn't get returned with iteritems
+        inst['name'] = instance['name']
+        return inst
 
     @scheduler_api.reroute_compute("get")
     def routing_get(self, context, instance_id):
@@ -948,8 +952,8 @@ class API(base.Base):
         filters = {}
 
         def _remap_flavor_filter(flavor_id):
-            instance_type = self.db.instance_type_get_by_flavor_id(
-                    context, flavor_id)
+            instance_type = instance_types.get_instance_type_by_flavor_id(
+                    flavor_id)
             filters['instance_type_id'] = instance_type['id']
 
         def _remap_fixed_ip_filter(fixed_ip):
@@ -986,7 +990,15 @@ class API(base.Base):
 
         local_zone_only = search_opts.get('local_zone_only', False)
 
-        instances = self._get_instances_by_filters(context, filters)
+        inst_models = self._get_instances_by_filters(context, filters)
+
+        # Convert the models to dictionaries
+        instances = []
+        for inst_model in inst_models:
+            instance = dict(inst_model.iteritems())
+            # NOTE(comstud): Doesn't get returned by iteritems
+            instance['name'] = inst_model['name']
+            instances.append(instance)
 
         if local_zone_only:
             return instances
@@ -1258,8 +1270,8 @@ class API(base.Base):
             LOG.debug(_("flavor_id is None. Assuming migration."))
             new_instance_type = current_instance_type
         else:
-            new_instance_type = self.db.instance_type_get_by_flavor_id(
-                    context, flavor_id)
+            new_instance_type = instance_types.get_instance_type_by_flavor_id(
+                    flavor_id)
 
         current_instance_type_name = current_instance_type['name']
         new_instance_type_name = new_instance_type['name']
@@ -1481,7 +1493,7 @@ class API(base.Base):
                  self.db.queue_get_for(context, FLAGS.compute_topic, host),
                  {"method": "attach_volume",
                   "args": {"volume_id": volume_id,
-                           "instance_id": instance_id,
+                           "instance_id": instance['id'],
                            "mountpoint": device}})
 
     def detach_volume(self, context, volume_id):
@@ -1528,13 +1540,21 @@ class API(base.Base):
                                                floating_address=address,
                                                fixed_address=fixed_ip_addrs[0])
 
+    def _get_native_instance_id(self, context, instance_id):
+        """If an instance id is a UUID, convert it to a native ID."""
+        if utils.is_uuid_like(instance_id):
+            instance_id = self.get(context, instance_id)['id']
+        return instance_id
+
     def get_instance_metadata(self, context, instance_id):
         """Get all metadata associated with an instance."""
+        instance_id = self._get_native_instance_id(context, instance_id)
         rv = self.db.instance_metadata_get(context, instance_id)
         return dict(rv.iteritems())
 
     def delete_instance_metadata(self, context, instance_id, key):
         """Delete the given metadata item from an instance."""
+        instance_id = self._get_native_instance_id(context, instance_id)
         self.db.instance_metadata_delete(context, instance_id, key)
 
     def update_instance_metadata(self, context, instance_id,
@@ -1545,6 +1565,8 @@ class API(base.Base):
         `metadata` argument will be deleted.
 
         """
+        instance_id = self._get_native_instance_id(context, instance_id)
+
         if delete:
             _metadata = metadata
         else:

@@ -23,6 +23,7 @@ import copy
 import datetime
 import json
 import random
+import time
 from urlparse import urlparse
 
 from glance.common import exception as glance_exception
@@ -99,8 +100,9 @@ def get_glance_client(context, image_href):
 
     """
     image_href = image_href or 0
+    glance_host, glance_port = pick_glance_api_server()
+
     if str(image_href).isdigit():
-        glance_host, glance_port = pick_glance_api_server()
         glance_client = _create_glance_client(context, glance_host,
                                               glance_port)
         return (glance_client, int(image_href))
@@ -230,11 +232,18 @@ class GlanceImageService(object):
 
     def get(self, context, image_id, data):
         """Calls out to Glance for metadata and data and writes data."""
-        try:
+        num_retries = FLAGS.glance_num_retries
+        for count in xrange(1 + num_retries):
             client = self._get_client(context)
-            image_meta, image_chunks = client.get_image(image_id)
-        except glance_exception.NotFound:
-            raise exception.ImageNotFound(image_id=image_id)
+            try:
+                image_meta, image_chunks = client.get_image(image_id)
+                break
+            except glance_exception.NotFound:
+                raise exception.ImageNotFound(image_id=image_id)
+            except Exception:
+                if count == num_retries:
+                    raise
+            time.sleep(1)
 
         for chunk in image_chunks:
             data.write(chunk)
@@ -286,10 +295,28 @@ class GlanceImageService(object):
         """Delete the given image.
 
         :raises: ImageNotFound if the image does not exist.
+        :raises: NotAuthorized if the user is not an owner.
 
         """
         # NOTE(vish): show is to check if image is available
-        self.show(context, image_id)
+        image_meta = self.show(context, image_id)
+
+        if FLAGS.use_deprecated_auth:
+            # NOTE(parthi): only allow image deletions if the user
+            # is a member of the project owning the image, in case of
+            # setup without keystone
+            # TODO Currently this access control breaks if
+            # 1. Image is not owned by a project
+            # 2. Deleting user is not bound a project
+            properties = image_meta['properties']
+            if (context.project_id and ('project_id' in properties)
+                and (context.project_id != properties['project_id'])):
+                raise exception.NotAuthorized(_("Not the image owner"))
+
+            if (context.project_id and ('owner_id' in properties)
+                and (context.project_id != properties['owner_id'])):
+                raise exception.NotAuthorized(_("Not the image owner"))
+
         try:
             result = self._get_client(context).delete_image(image_id)
         except glance_exception.NotFound:
@@ -328,6 +355,9 @@ class GlanceImageService(object):
             return True
 
         properties = image_meta['properties']
+
+        if context.project_id and ('owner_id' in properties):
+            return str(properties['owner_id']) == str(context.project_id)
 
         if context.project_id and ('project_id' in properties):
             return str(properties['project_id']) == str(context.project_id)

@@ -204,7 +204,7 @@ class Controller(object):
         return kernel_id, ramdisk_id
 
     @staticmethod
-    def  _do_get_kernel_ramdisk_from_image(image_meta):
+    def _do_get_kernel_ramdisk_from_image(image_meta):
         """Given an ImageService image_meta, return kernel and ramdisk image
         ids if present.
 
@@ -585,6 +585,7 @@ class Controller(object):
         rotation factor to be deleted.
 
         """
+        context = req.environ["nova.context"]
         entity = input_dict["createBackup"]
 
         try:
@@ -607,13 +608,10 @@ class Controller(object):
             raise exc.HTTPBadRequest(explanation=msg)
 
         # preserve link to server in image properties
-        server_ref = os.path.join(req.application_url,
-                                  'servers',
-                                  str(instance_id))
+        server_ref = os.path.join(req.application_url, 'servers', instance_id)
         props = {'instance_ref': server_ref}
 
         metadata = entity.get('metadata', {})
-        context = req.environ["nova.context"]
         common.check_img_metadata_quota_limit(context, metadata)
         try:
             props.update(metadata)
@@ -680,44 +678,6 @@ class Controller(object):
 
     @exception.novaclient_converter
     @scheduler_api.redirect_handler
-    def get_lock(self, req, id):
-        """
-        return the boolean state of (instance with id)'s lock
-
-        """
-        context = req.environ['nova.context']
-        try:
-            self.compute_api.get_lock(context, id)
-        except Exception:
-            readable = traceback.format_exc()
-            LOG.exception(_("Compute.api::get_lock %s"), readable)
-            raise exc.HTTPUnprocessableEntity()
-        return webob.Response(status_int=202)
-
-    @exception.novaclient_converter
-    @scheduler_api.redirect_handler
-    def get_ajax_console(self, req, id):
-        """Returns a url to an instance's ajaxterm console."""
-        try:
-            self.compute_api.get_ajax_console(req.environ['nova.context'],
-                int(id))
-        except exception.NotFound:
-            raise exc.HTTPNotFound()
-        return webob.Response(status_int=202)
-
-    @exception.novaclient_converter
-    @scheduler_api.redirect_handler
-    def get_vnc_console(self, req, id):
-        """Returns a url to an instance's ajaxterm console."""
-        try:
-            self.compute_api.get_vnc_console(req.environ['nova.context'],
-                                             int(id))
-        except exception.NotFound:
-            raise exc.HTTPNotFound()
-        return webob.Response(status_int=202)
-
-    @exception.novaclient_converter
-    @scheduler_api.redirect_handler
     def diagnostics(self, req, id):
         """Permit Admins to retrieve server diagnostics."""
         ctxt = req.environ["nova.context"]
@@ -737,7 +697,7 @@ class Controller(object):
                 error=item.error))
         return dict(actions=actions)
 
-    def resize(self, req, instance_id, flavor_id):
+    def _resize(self, req, instance_id, flavor_id):
         """Begin the resize process with given instance/flavor."""
         context = req.environ["nova.context"]
 
@@ -821,11 +781,11 @@ class Controller(object):
         if (not 'changePassword' in input_dict
             or not 'adminPass' in input_dict['changePassword']):
             msg = _("No adminPass was specified")
-            return exc.HTTPBadRequest(explanation=msg)
+            raise exc.HTTPBadRequest(explanation=msg)
         password = input_dict['changePassword']['adminPass']
         if not isinstance(password, basestring) or password == '':
             msg = _("Invalid adminPass")
-            return exc.HTTPBadRequest(explanation=msg)
+            raise exc.HTTPBadRequest(explanation=msg)
         self.compute_api.set_admin_password(context, id, password)
         return webob.Response(status_int=202)
 
@@ -841,24 +801,6 @@ class Controller(object):
             LOG.debug(msg)
             raise exc.HTTPBadRequest(explanation=msg)
 
-    def _decode_personalities(self, personalities):
-        """Decode the Base64-encoded personalities."""
-        for personality in personalities:
-            try:
-                path = personality["path"]
-                contents = personality["contents"]
-            except (KeyError, TypeError):
-                msg = _("Unable to parse personality path/contents.")
-                LOG.info(msg)
-                raise exc.HTTPBadRequest(explanation=msg)
-
-            try:
-                personality["contents"] = base64.b64decode(contents)
-            except TypeError:
-                msg = _("Personality content could not be Base64 decoded.")
-                LOG.info(msg)
-                raise exc.HTTPBadRequest(explanation=msg)
-
     def _action_resize(self, input_dict, req, id):
         """ Resizes a given instance to the flavor size requested """
         try:
@@ -870,7 +812,7 @@ class Controller(object):
             msg = _("Resize requests require 'flavorRef' attribute.")
             raise exc.HTTPBadRequest(explanation=msg)
 
-        return self.resize(req, id, flavor_ref)
+        return self._resize(req, id, flavor_ref)
 
     def _action_rebuild(self, info, request, instance_id):
         context = request.environ['nova.context']
@@ -882,13 +824,16 @@ class Controller(object):
             LOG.debug(msg)
             raise exc.HTTPBadRequest(explanation=msg)
 
-        personalities = info["rebuild"].get("personality", [])
+        personality = info["rebuild"].get("personality", [])
+        injected_files = []
+        if personality:
+            injected_files = self._get_injected_files(personality)
+
         metadata = info["rebuild"].get("metadata")
         name = info["rebuild"].get("name")
 
         if metadata:
             self._validate_metadata(metadata)
-        self._decode_personalities(personalities)
 
         if 'rebuild' in info and 'adminPass' in info['rebuild']:
             password = info['rebuild']['adminPass']
@@ -898,7 +843,7 @@ class Controller(object):
         try:
             self.compute_api.rebuild(context, instance_id, image_href,
                                      password, name=name, metadata=metadata,
-                                     files_to_inject=personalities)
+                                     files_to_inject=injected_files)
         except exception.RebuildRequiresActiveInstance:
             msg = _("Instance %s must be active to rebuild.") % instance_id
             raise exc.HTTPConflict(explanation=msg)
@@ -915,6 +860,7 @@ class Controller(object):
     @common.check_snapshots_enabled
     def _action_create_image(self, input_dict, req, instance_id):
         """Snapshot a server instance."""
+        context = req.environ['nova.context']
         entity = input_dict.get("createImage", {})
 
         try:
@@ -929,13 +875,10 @@ class Controller(object):
             raise exc.HTTPBadRequest(explanation=msg)
 
         # preserve link to server in image properties
-        server_ref = os.path.join(req.application_url,
-                                  'servers',
-                                  str(instance_id))
+        server_ref = os.path.join(req.application_url, 'servers', instance_id)
         props = {'instance_ref': server_ref}
 
         metadata = entity.get('metadata', {})
-        context = req.environ['nova.context']
         common.check_img_metadata_quota_limit(context, metadata)
         try:
             props.update(metadata)
@@ -998,7 +941,6 @@ def make_server(elem, detailed=False):
     elem.set('id')
 
     if detailed:
-        elem.set('uuid')
         elem.set('userId', 'user_id')
         elem.set('tenantId', 'tenant_id')
         elem.set('updated')

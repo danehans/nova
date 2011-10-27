@@ -46,6 +46,7 @@ INVALID_NETWORKS = [('invalid', 'invalid-ip-address')]
 
 INSTANCE = {
              "id": 1,
+             "name": "fake",
              "display_name": "test_server",
              "uuid": FAKE_UUID,
              "user_id": 'fake_user_id',
@@ -396,9 +397,9 @@ class CreateserverextTest(test.TestCase):
 
     def test_create_instance_with_security_group_json(self):
         security_groups = ['test', 'test1']
-        self.stubs.Set(nova.db.api, 'security_group_get_by_name',
+        self.stubs.Set(nova.db, 'security_group_get_by_name',
                        return_security_group_get_by_name)
-        self.stubs.Set(nova.db.api, 'instance_add_security_group',
+        self.stubs.Set(nova.db, 'instance_add_security_group',
                        return_instance_add_security_group)
         self._setup_mock_network_api()
         body_dict = self._create_security_group_request_dict(security_groups)
@@ -408,7 +409,7 @@ class CreateserverextTest(test.TestCase):
         self.assertEquals(response.status_int, 202)
 
     def test_get_server_by_id_verify_security_groups_json(self):
-        self.stubs.Set(nova.db.api, 'instance_get', return_server_by_id)
+        self.stubs.Set(nova.db, 'instance_get', return_server_by_id)
         self._setup_mock_network_api()
         req = webob.Request.blank('/v1.1/123/os-create-server-ext/1')
         req.headers['Content-Type'] = 'application/json'
@@ -420,7 +421,7 @@ class CreateserverextTest(test.TestCase):
                           expected_security_group)
 
     def test_get_server_by_id_verify_security_groups_xml(self):
-        self.stubs.Set(nova.db.api, 'instance_get', return_server_by_id)
+        self.stubs.Set(nova.db, 'instance_get', return_server_by_id)
         self._setup_mock_network_api()
         req = webob.Request.blank('/v1.1/123/os-create-server-ext/1')
         req.headers['Accept'] = 'application/xml'
