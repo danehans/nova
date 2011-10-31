@@ -46,6 +46,7 @@ LOG = logging.getLogger('nova.compute.api')
 
 FLAGS = flags.FLAGS
 flags.DECLARE('vncproxy_topic', 'nova.vnc')
+flags.DECLARE('enable_zone_routing', 'nova.scheduler.api')
 flags.DEFINE_integer('find_host_timeout', 30,
                      'Timeout after NN seconds when looking for a host.')
 
@@ -325,8 +326,18 @@ class API(base.Base):
 
         LOG.debug(_("Going to run %s instances...") % num_instances)
 
+        instance = None
         if wait_for_instances:
-            rpc_method = rpc.call
+            if max_count == 1 and not FLAGS.enable_zone_routing:
+                # We can create the DB entry here since we're only
+                # building 1 instance... and zone routing is off.
+                instance = self.create_db_entry_for_new_instance(
+                        context, instance_type, image, base_options,
+                        security_group, block_device_mapping)
+                base_options['id'] = instance['id']
+                rpc_method = rpc.cast
+            else:
+                rpc_method = rpc.call
         else:
             rpc_method = rpc.cast
 
@@ -344,6 +355,9 @@ class API(base.Base):
                 num_instances, requested_networks,
                 block_device_mapping, security_group)
 
+        if instance:
+            # Instance we created above.
+            return ([instance], reservation_id)
         return (instances, reservation_id)
 
     @staticmethod
@@ -476,10 +490,8 @@ class API(base.Base):
 
         # Set sane defaults if not specified
         updates = {}
-        if (not hasattr(instance, 'display_name') or
-                instance.display_name is None):
+        if instance.get('display_name') is None:
             updates['display_name'] = generate_default_display_name(instance)
-            instance['display_name'] = updates['display_name']
         updates['hostname'] = self.hostname_factory(instance)
         updates['vm_state'] = vm_states.BUILDING
         updates['task_state'] = task_states.SCHEDULING
