@@ -25,6 +25,7 @@ import operator
 
 import eventlet
 from eventlet import queue
+import greenlet
 import M2Crypto
 from novaclient import v1_1 as novaclient
 from novaclient import exceptions as novaclient_exceptions
@@ -60,7 +61,10 @@ class RackspaceScheduler(driver.Scheduler):
     def __init__(self, *args, **kwargs):
         super(RackspaceScheduler, self).__init__(*args, **kwargs)
         # Only schedule 1 at a time
-        self.run_instance_queue = queue.Queue(maxsize=1)
+        self.run_instance_req_queue = queue.Queue(maxsize=1)
+        self.run_instance_resp_queue = queue.Queue()
+        self.run_instance_thread = eventlet.spawn(
+                self._run_instance_queue_processor)
 
     def _call_zone_method(self, context, method, specs, zones):
         """Call novaclient zone method. Broken out for testing."""
@@ -202,6 +206,28 @@ class RackspaceScheduler(driver.Scheduler):
                         LOG.exception(_("Bad child zone scaling values "
                                 "for Zone: %(zone_id)s") % locals())
 
+    def _run_instance_queue_processor(self):
+        try:
+            while True:
+                entry = self.run_instance_req_queue.get()
+                try:
+                    result = self._schedule_run_instance(
+                            entry['context'],
+                            entry['request_spec'],
+                            *entry['args'],
+                            **entry['kwargs'])
+                except greenlet.GreenletExit:
+                    raise
+                except Exception, e:
+                    LOG.exception(_("_schedule_run_instance failed"))
+                    # We need to return this through the response queue
+                    # so the caller can re-raise
+                    result = e
+                self.run_instance_resp_queue.put(result)
+                self.run_instance_req_queue.task_done()
+        except greenlet.GreenletExit:
+            return
+
     def schedule_run_instance(self, context, request_spec, *args, **kwargs):
         """This method is called from nova.compute.api to provision
         an instance. However we need to look at the parameters being
@@ -214,21 +240,13 @@ class RackspaceScheduler(driver.Scheduler):
         returns list of instances created.
         """
 
-        def _run_it():
-            entry = self.run_instance_queue.get()
-            result = self._schedule_run_instance(
-                    entry['context'],
-                    entry['request_spec'],
-                    *entry['args'],
-                    **entry['kwargs'])
-            self.run_instance_queue.task_done()
-            return result
-
         entry = dict(context=context, request_spec=request_spec,
                 args=args, kwargs=kwargs)
-        self.run_instance_queue.put(entry)
-        thr = eventlet.spawn(_run_it)
-        return thr.wait()
+        self.run_instance_req_queue.put(entry)
+        result = self.run_instance_resp_queue.get()
+        if isinstance(result, BaseException):
+            raise result
+        return result
 
     def _schedule_run_instance(self, context, request_spec, *args, **kwargs):
         # TODO(sandy): We'll have to look for richer specs at some point.

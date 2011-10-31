@@ -18,17 +18,18 @@ Tests For Rackspace Scheduler.
 
 import json
 
-import nova.db
+import eventlet
 
+from nova.compute import api as compute_api
 from nova import context
+import nova.db
 from nova import exception
 from nova import rpc
-from nova import test
-from nova.compute import api as compute_api
 from nova.scheduler import driver
 from nova.scheduler import rackspace_scheduler
 from nova.scheduler import base_scheduler
 from nova.scheduler import zone_manager
+from nova import test
 
 
 def _host_caps(multiplier):
@@ -89,10 +90,25 @@ class FakeZoneManager(zone_manager.ZoneManager):
             },
         }
 
+    def get_host_list_from_db(self, context):
+        return [
+            ('host1', dict(free_disk_gb=1028, free_ram_mb=1028,
+                num_builds=0, num_snaps=0, num_migrates=0)),
+            ('host2', dict(free_disk_gb=2048, free_ram_mb=2048,
+                num_builds=0, num_snaps=0, num_migrates=0)),
+            ('host3', dict(free_disk_gb=4096, free_ram_mb=4096,
+                num_builds=0, num_snaps=0, num_migrates=0)),
+            ('host4', dict(free_disk_gb=8192, free_ram_mb=8192,
+                num_builds=0, num_snaps=0, num_migrates=0))
+        ]
+
 
 class FakeEmptyZoneManager(zone_manager.ZoneManager):
     def __init__(self):
         self.service_states = {}
+
+    def get_host_list_from_db(self, context):
+        return []
 
 
 def fake_empty_call_zone_method(context, method, specs, zones):
@@ -173,7 +189,7 @@ def fake_zone_get_all(context):
 class RackspaceSchedulerTestCase(test.TestCase):
     """Test case for Rackspace Scheduler."""
 
-    def test_abstract_scheduler(self):
+    def test_rackspace_scheduler(self):
         """
         Create a nested set of FakeZones, try to build multiple instances
         and ensure that a select call returns the appropriate build plan.
@@ -183,7 +199,7 @@ class RackspaceSchedulerTestCase(test.TestCase):
         self.stubs.Set(nova.db, 'zone_get_all', fake_zone_get_all)
 
         zm = FakeZoneManager()
-        sched.set_zone_manager(zm)
+        sched.zone_manager = zm
 
         fake_context = context.RequestContext('user', 'project')
         build_plan = sched.select(fake_context,
@@ -218,7 +234,7 @@ class RackspaceSchedulerTestCase(test.TestCase):
                 if zone == 'zone3':  # Scale x1000
                     self.assertEqual(scaled.pop(0), w)
 
-    def test_empty_abstract_scheduler(self):
+    def test_empty_rackspace_scheduler(self):
         """
         Ensure empty hosts & child_zones result in NoValidHosts exception.
         """
@@ -227,7 +243,7 @@ class RackspaceSchedulerTestCase(test.TestCase):
         self.stubs.Set(nova.db, 'zone_get_all', fake_zone_get_all)
 
         zm = FakeEmptyZoneManager()
-        sched.set_zone_manager(zm)
+        sched.zone_manager = zm
 
         fake_context = context.RequestContext('user', 'project')
         request_spec = {}
@@ -284,7 +300,7 @@ class RackspaceSchedulerTestCase(test.TestCase):
         global was_called
         sched = FakeRackspaceScheduler()
         request_spec = {}
-        self.assertRaises(abstract_scheduler.InvalidBlob,
+        self.assertRaises(rackspace_scheduler.InvalidBlob,
                           sched._provision_resource_from_blob,
                           None, {}, {}, {})
 
@@ -368,7 +384,7 @@ class RackspaceSchedulerTestCase(test.TestCase):
             def decryptor(self, key):
                 return lambda blob: blob
 
-        self.stubs.Set(abstract_scheduler, 'crypto',
+        self.stubs.Set(rackspace_scheduler, 'crypto',
                        StubDecryptor())
 
         self.assertEqual(fixture._decrypt_blob(test_data),
@@ -383,9 +399,7 @@ class RackspaceSchedulerTestCase(test.TestCase):
         self.stubs.Set(sched, '_call_zone_method', fake_call_zone_method)
         self.stubs.Set(nova.db, 'zone_get_all', fake_zone_get_all)
 
-        zm = FakeZoneManager()
-        # patch this to have no local hosts
-        zm.service_states = {}
+        zm = FakeEmptyZoneManager()
         sched.set_zone_manager(zm)
 
         fake_context = context.RequestContext('user', 'project')
@@ -416,7 +430,7 @@ class RackspaceSchedulerTestCase(test.TestCase):
         self.stubs.Set(nova.db, 'zone_get_all', fake_zone_get_all_zero)
 
         zm = FakeZoneManager()
-        sched.set_zone_manager(zm)
+        sched.zone_manager = zm
 
         fake_context = context.RequestContext('user', 'project')
 
@@ -435,28 +449,33 @@ class RackspaceSchedulerTestCase(test.TestCase):
         self.assertFalse(instances[0].get('_is_precooked', False))
         nova.db.instance_destroy(fake_context, instances[0]['id'])
 
-
-class BaseSchedulerTestCase(test.TestCase):
-    """Test case for Base Scheduler."""
-
-    def test_weigh_hosts(self):
+    def test_schedule_one_at_a_time(self):
         """
-        Try to weigh a short list of hosts and make sure enough
-        entries for a larger number instances are returned.
+        Check the local/child zone routing in the run_instance() call.
+        If the zone_blob hint was passed in, don't re-schedule.
         """
 
-        sched = FakeBaseScheduler()
+        sched = FakeRackspaceScheduler()
+        sched._num_schedules = 0
 
-        # Fake out a list of hosts
-        zm = FakeZoneManager()
-        hostlist = [(host, services['compute'])
-                    for host, services in zm.service_states.items()
-                    if 'compute' in services]
+        info_dict = dict(num_schedules=0)
 
-        # Call weigh_hosts()
-        num_instances = len(hostlist) * 2 + len(hostlist) / 2
-        instlist = sched.weigh_hosts(dict(num_instances=num_instances),
-                                     hostlist)
+        def fake_schedule_run_instance(context, request_spec,
+                *args, **kwargs):
+            self.assertEqual(info_dict['num_schedules'], 0)
+            info_dict['num_schedules'] += 1
+            eventlet.sleep(2)
+            info_dict['num_schedules'] -= 1
+            return request_spec['num']
 
-        # Should be enough entries to cover all instances
-        self.assertEqual(len(instlist), num_instances)
+        self.stubs.Set(sched, '_schedule_run_instance',
+                fake_schedule_run_instance)
+
+        thr1 = eventlet.spawn(sched.schedule_run_instance,
+                None, dict(num=1))
+        thr2 = eventlet.spawn(sched.schedule_run_instance,
+                None, dict(num=2))
+        res2 = thr2.wait()
+        res1 = thr1.wait()
+        self.assertEqual(res2, 2)
+        self.assertEqual(res1, 1)
