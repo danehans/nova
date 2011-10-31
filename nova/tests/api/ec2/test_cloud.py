@@ -1013,8 +1013,6 @@ class CloudTestCase(test.TestCase):
         self.assertDictListUnorderedMatch(result['blockDeviceMapping'],
                                           self._expected_bdms2, 'deviceName')
 
-        self.stubs.UnsetAll()
-
     def test_describe_image_attribute(self):
         describe_image_attribute = self.cloud.describe_image_attribute
 
@@ -1216,7 +1214,7 @@ class CloudTestCase(test.TestCase):
 
         self.stubs.UnsetAll()
         self.stubs.Set(fake._FakeImageService, 'show', fake_show)
-
+        self.stubs.Set(rpc, 'cast', rpc.call)
         result = run_instances(self.context, **kwargs)
         instance = result['instancesSet'][0]
         self.assertEqual(instance['imageId'], 'ami-00000001')

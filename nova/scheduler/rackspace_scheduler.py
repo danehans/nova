@@ -44,7 +44,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_integer('scheduler_max_ios_per_host',
         8,
         "Ignore hosts that have too many builds/resizes/snaps/migrations")
- 
+
 LOG = logging.getLogger('nova.scheduler.abstract_scheduler')
 
 
