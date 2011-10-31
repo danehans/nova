@@ -40,6 +40,10 @@ from nova.scheduler import api
 from nova.scheduler import driver
 
 FLAGS = flags.FLAGS
+flags.DEFINE_integer('scheduler_max_ios_per_host',
+        8,
+        "Ignore hosts that have too many builds/resizes/snaps/migrations")
+ 
 LOG = logging.getLogger('nova.scheduler.abstract_scheduler')
 
 
@@ -214,14 +218,14 @@ class RackspaceScheduler(driver.Scheduler):
             entry = self.run_instance_queue.get()
             result = self._schedule_run_instance(
                     entry['context'],
-                    entry['request_spec',
+                    entry['request_spec'],
                     *entry['args'],
                     **entry['kwargs'])
             self.run_instance_queue.task_done()
             return result
 
-        entry = {context=context, request_spec=request_spec,
-                args=args, kwargs=kwargs}
+        entry = dict(context=context, request_spec=request_spec,
+                args=args, kwargs=kwargs)
         self.run_instance_queue.put(entry)
         thr = eventlet.spawn(_run_it)
         return thr.wait()
@@ -332,8 +336,20 @@ class RackspaceScheduler(driver.Scheduler):
                     "available") % locals())
             return free_ram_mb >= requested_ram
 
+        def io_ops_filter(hostname, capabilities, request_spec):
+            """Only return hosts with sufficient available RAM."""
+            num_builds = capabilities['num_builds']
+            num_snaps = capabilities['num_snaps']
+            num_migrates = capabilities['num_migrates']
+            LOG.debug(_("****** IOS filter for '%(hostname)s': "
+                    "Builds=%(num_builds)s, Snaps=%(num_snaps)s, "
+                    "Migrates=%(num_migrates)s") % locals())
+            num_io_ops = num_builds + num_snaps + num_migrates
+            return num_io_ops < FLAGS.scheduler_max_ios_per_host
+
         return [(host, services) for host, services in host_list
-                if basic_ram_filter(host, services, request_spec)]
+                if basic_ram_filter(host, services, request_spec) and
+                        io_ops_filter(host, services, request_spec)]
 
     def weigh_hosts(self, request_spec, hosts):
         """This version assigns a weight of 1 to all hosts, making selection

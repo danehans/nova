@@ -21,10 +21,10 @@ import datetime
 import thread
 import traceback
 
+from eventlet import greenpool
 from novaclient import v1_1 as novaclient
 
-from eventlet import greenpool
-
+from nova.compute import vm_states
 from nova import db
 from nova import flags
 from nova import log as logging
@@ -165,7 +165,10 @@ class ZoneManager(object):
             host = compute['service']['host']
 
             compute_map[host] = dict(free_disk_gb=all_disk,
-                                     free_ram_mb=all_ram)
+                                     free_ram_mb=all_ram,
+                                     num_builds=0,
+                                     num_resizes=0,
+                                     num_migrations=0)
             # reserve 2G for dom0
             self.consume_resources(compute_map[host], 0, 2048)
 
@@ -174,9 +177,17 @@ class ZoneManager(object):
         for instance in instances:
             disk = instance['local_gb']
             ram = instance['memory_mb']
+            vm_state = instance['vm_state']
             compute_host = instance['host']
             compute = compute_map.get(compute_host)
             if compute:
+                if (vm_state == vm_state.BUILDING or
+                        vm_state == vm_state.REBUILDING):
+                    compute['num_builds'] += 1
+                elif vm_state == vm_state.RESIZING:
+                    compute['num_resizes'] += 1
+                elif vm_state == vm_state.MIGRATING:
+                    compute['num_migrations'] += 1
                 self.consume_resources(compute, disk, ram)
             else:
                 logging.warn(_("Compute host %(compute_host)s not in DB") %

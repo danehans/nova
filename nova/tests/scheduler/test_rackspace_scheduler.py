@@ -13,7 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 """
-Tests For Abstract Scheduler.
+Tests For Rackspace Scheduler.
 """
 
 import json
@@ -26,7 +26,7 @@ from nova import rpc
 from nova import test
 from nova.compute import api as compute_api
 from nova.scheduler import driver
-from nova.scheduler import abstract_scheduler
+from nova.scheduler import rackspace_scheduler
 from nova.scheduler import base_scheduler
 from nova.scheduler import zone_manager
 
@@ -62,7 +62,7 @@ def fake_zone_manager_service_states(num_hosts):
     return states
 
 
-class FakeAbstractScheduler(abstract_scheduler.AbstractScheduler):
+class FakeRackspaceScheduler(rackspace_scheduler.RackspaceScheduler):
     # No need to stub anything at the moment
     pass
 
@@ -170,15 +170,15 @@ def fake_zone_get_all(context):
     ]
 
 
-class AbstractSchedulerTestCase(test.TestCase):
-    """Test case for Abstract Scheduler."""
+class RackspaceSchedulerTestCase(test.TestCase):
+    """Test case for Rackspace Scheduler."""
 
     def test_abstract_scheduler(self):
         """
         Create a nested set of FakeZones, try to build multiple instances
         and ensure that a select call returns the appropriate build plan.
         """
-        sched = FakeAbstractScheduler()
+        sched = FakeRackspaceScheduler()
         self.stubs.Set(sched, '_call_zone_method', fake_call_zone_method)
         self.stubs.Set(nova.db, 'zone_get_all', fake_zone_get_all)
 
@@ -203,7 +203,7 @@ class AbstractSchedulerTestCase(test.TestCase):
         properly adjusted based on the scale/offset in the zone
         db entries.
         """
-        sched = FakeAbstractScheduler()
+        sched = FakeRackspaceScheduler()
         child_results = fake_call_zone_method(None, None, None, None)
         zones = fake_zone_get_all(None)
         sched._adjust_child_weights(child_results, zones)
@@ -222,7 +222,7 @@ class AbstractSchedulerTestCase(test.TestCase):
         """
         Ensure empty hosts & child_zones result in NoValidHosts exception.
         """
-        sched = FakeAbstractScheduler()
+        sched = FakeRackspaceScheduler()
         self.stubs.Set(sched, '_call_zone_method', fake_empty_call_zone_method)
         self.stubs.Set(nova.db, 'zone_get_all', fake_zone_get_all)
 
@@ -241,7 +241,7 @@ class AbstractSchedulerTestCase(test.TestCase):
         If the zone_blob hint was passed in, don't re-schedule.
         """
         global was_called
-        sched = FakeAbstractScheduler()
+        sched = FakeRackspaceScheduler()
         was_called = False
         self.stubs.Set(sched, '_provision_resource', fake_provision_resource)
         request_spec = {
@@ -258,7 +258,7 @@ class AbstractSchedulerTestCase(test.TestCase):
     def test_provision_resource_local(self):
         """Provision a resource locally or remotely."""
         global was_called
-        sched = FakeAbstractScheduler()
+        sched = FakeRackspaceScheduler()
         was_called = False
         self.stubs.Set(sched, '_provision_resource_locally',
                        fake_provision_resource_locally)
@@ -270,7 +270,7 @@ class AbstractSchedulerTestCase(test.TestCase):
     def test_provision_resource_remote(self):
         """Provision a resource locally or remotely."""
         global was_called
-        sched = FakeAbstractScheduler()
+        sched = FakeRackspaceScheduler()
         was_called = False
         self.stubs.Set(sched, '_provision_resource_from_blob',
                        fake_provision_resource_from_blob)
@@ -282,7 +282,7 @@ class AbstractSchedulerTestCase(test.TestCase):
     def test_provision_resource_from_blob_empty(self):
         """Provision a resource locally or remotely given no hints."""
         global was_called
-        sched = FakeAbstractScheduler()
+        sched = FakeRackspaceScheduler()
         request_spec = {}
         self.assertRaises(abstract_scheduler.InvalidBlob,
                           sched._provision_resource_from_blob,
@@ -293,7 +293,7 @@ class AbstractSchedulerTestCase(test.TestCase):
         Provision a resource locally or remotely when blob hint passed in.
         """
         global was_called
-        sched = FakeAbstractScheduler()
+        sched = FakeRackspaceScheduler()
         was_called = False
 
         def fake_create_db_entry_for_new_instance(self, context,
@@ -328,7 +328,7 @@ class AbstractSchedulerTestCase(test.TestCase):
         passed in.
         """
         global was_called
-        sched = FakeAbstractScheduler()
+        sched = FakeRackspaceScheduler()
         self.stubs.Set(sched, '_decrypt_blob',
                        fake_decrypt_blob_returns_child_info)
         was_called = False
@@ -347,7 +347,7 @@ class AbstractSchedulerTestCase(test.TestCase):
         from an immediate child.
         """
         global was_called
-        sched = FakeAbstractScheduler()
+        sched = FakeRackspaceScheduler()
         was_called = False
         self.stubs.Set(sched, '_ask_child_zone_to_create_instance',
                        fake_ask_child_zone_to_create_instance)
@@ -361,7 +361,7 @@ class AbstractSchedulerTestCase(test.TestCase):
     def test_decrypt_blob(self):
         """Test that the decrypt method works."""
 
-        fixture = FakeAbstractScheduler()
+        fixture = FakeRackspaceScheduler()
         test_data = {"foo": "bar"}
 
         class StubDecryptor(object):
@@ -379,7 +379,7 @@ class AbstractSchedulerTestCase(test.TestCase):
         Create a nested set of FakeZones, try to build multiple instances
         and ensure that a select call returns the appropriate build plan.
         """
-        sched = FakeAbstractScheduler()
+        sched = FakeRackspaceScheduler()
         self.stubs.Set(sched, '_call_zone_method', fake_call_zone_method)
         self.stubs.Set(nova.db, 'zone_get_all', fake_zone_get_all)
 
@@ -399,7 +399,7 @@ class AbstractSchedulerTestCase(test.TestCase):
     def test_run_instance_non_admin(self):
         """Test creating an instance locally using run_instance, passing
         a non-admin context.  DB actions should work."""
-        sched = FakeAbstractScheduler()
+        sched = FakeRackspaceScheduler()
 
         def fake_cast_to_compute_host(*args, **kwargs):
             pass
