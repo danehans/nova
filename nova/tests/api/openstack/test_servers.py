@@ -1349,7 +1349,8 @@ class ServersControllerCreateTest(test.TestCase):
 
         def instance_create(context, inst):
             inst_type = instance_types.get_instance_type_by_flavor_id(3)
-            image_ref = 'http://localhost/images/2'
+            image_uuid = '76fa36fc-c930-4bf3-8c8a-ea2a2420deb6'
+            def_image_ref = 'http://localhost/images/%s' % image_uuid
             self.instance_cache_num += 1
             instance = {
                 'id': self.instance_cache_num,
@@ -1358,7 +1359,7 @@ class ServersControllerCreateTest(test.TestCase):
                 'instance_type': dict(inst_type),
                 'access_ip_v4': '1.2.3.4',
                 'access_ip_v6': 'fead::1234',
-                'image_ref': image_ref,
+                'image_ref': inst.get('image_ref', def_image_ref),
                 'user_id': 'fake',
                 'project_id': 'fake',
                 'reservation_id': inst['reservation_id'],
@@ -1404,10 +1405,8 @@ class ServersControllerCreateTest(test.TestCase):
             return 'network_topic'
 
         def kernel_ramdisk_mapping(*args, **kwargs):
-            return (1, 1)
-
-        def image_id_from_hash(*args, **kwargs):
-            return 2
+            image_uuid = 'cedef40a-ed67-4d10-800e-17455edce175'
+            return (image_uuid, image_uuid)
 
         fakes.stub_out_networking(self.stubs)
         fakes.stub_out_rate_limiting(self.stubs)
@@ -1432,8 +1431,9 @@ class ServersControllerCreateTest(test.TestCase):
         self.stubs.Set(nova.compute.api.API, "_find_host", find_host)
 
     def _test_create_instance(self):
+        image_uuid = 'c905cedb-7281-47e4-8a62-f26bc5fc4c77'
         body = dict(server=dict(
-            name='server_test', imageRef=3, flavorRef=2,
+            name='server_test', imageRef=image_uuid, flavorRef=2,
             metadata={'hello': 'world', 'open': 'stack'},
             personality={}))
         req = fakes.HTTPRequest.blank('/v1.1/fake/servers')
@@ -1446,13 +1446,13 @@ class ServersControllerCreateTest(test.TestCase):
         self.assertEqual('server_test', server['name'])
         self.assertEqual(FAKE_UUID, server['id'])
         self.assertEqual('2', server['flavor']['id'])
-        self.assertEqual('3', server['image']['id'])
+        self.assertEqual(image_uuid, server['image']['id'])
 
     def test_create_multiple_instances(self):
         """Test creating multiple instances but not asking for
         reservation_id
         """
-        image_href = 'http://localhost/v1.1/123/images/2'
+        image_href = '76fa36fc-c930-4bf3-8c8a-ea2a2420deb6'
         flavor_ref = 'http://localhost/123/flavors/3'
         body = {
             'server': {
@@ -1478,7 +1478,7 @@ class ServersControllerCreateTest(test.TestCase):
         """Test creating multiple instances with asking for
         reservation_id
         """
-        image_href = 'http://localhost/v1.1/123/images/2'
+        image_href = '76fa36fc-c930-4bf3-8c8a-ea2a2420deb6'
         flavor_ref = 'http://localhost/123/flavors/3'
         body = {
             'server': {
@@ -1506,7 +1506,7 @@ class ServersControllerCreateTest(test.TestCase):
 
     def test_create_instance_with_user_supplied_reservation_id(self):
         """Non-admin supplied reservation_id should be ignored."""
-        image_href = 'http://localhost/v1.1/123/images/2'
+        image_href = '76fa36fc-c930-4bf3-8c8a-ea2a2420deb6'
         flavor_ref = 'http://localhost/123/flavors/3'
         body = {
             'server': {
@@ -1532,7 +1532,7 @@ class ServersControllerCreateTest(test.TestCase):
 
     def test_create_instance_with_admin_supplied_reservation_id(self):
         """Admin supplied reservation_id should be honored."""
-        image_href = 'http://localhost/v1.1/123/images/2'
+        image_href = '76fa36fc-c930-4bf3-8c8a-ea2a2420deb6'
         flavor_ref = 'http://localhost/123/flavors/3'
         body = {
             'server': {
@@ -1563,7 +1563,8 @@ class ServersControllerCreateTest(test.TestCase):
 
     def test_create_instance_with_access_ip(self):
         # proper local hrefs must start with 'http://localhost/v1.1/'
-        image_href = 'http://localhost/v1.1/fake/images/2'
+        image_uuid = '76fa36fc-c930-4bf3-8c8a-ea2a2420deb6'
+        image_href = 'http://localhost/v1.1/fake/images/%s' % image_uuid
         flavor_ref = 'http://localhost/fake/flavors/3'
         access_ipv4 = '1.2.3.4'
         access_ipv6 = 'fead::1234'
@@ -1577,11 +1578,11 @@ class ServersControllerCreateTest(test.TestCase):
             ],
         }
         expected_image = {
-            "id": "2",
+            "id": image_uuid,
             "links": [
                 {
                     "rel": "bookmark",
-                    "href": 'http://localhost/fake/images/2',
+                    "href": 'http://localhost/fake/images/%s' % image_uuid,
                 },
             ],
         }
@@ -1623,7 +1624,8 @@ class ServersControllerCreateTest(test.TestCase):
 
     def test_create_instance(self):
         # proper local hrefs must start with 'http://localhost/v1.1/'
-        image_href = 'http://localhost/v1.1/images/2'
+        image_uuid = '76fa36fc-c930-4bf3-8c8a-ea2a2420deb6'
+        image_href = 'http://localhost/v1.1/images/%s' % image_uuid
         flavor_ref = 'http://localhost/123/flavors/3'
         expected_flavor = {
             "id": "3",
@@ -1635,11 +1637,11 @@ class ServersControllerCreateTest(test.TestCase):
             ],
         }
         expected_image = {
-            "id": "2",
+            "id": image_uuid,
             "links": [
                 {
                     "rel": "bookmark",
-                    "href": 'http://localhost/fake/images/2',
+                    "href": 'http://localhost/fake/images/%s' % image_uuid,
                 },
             ],
         }
@@ -1693,7 +1695,7 @@ class ServersControllerCreateTest(test.TestCase):
                           self.controller.create, req, body)
 
     def test_create_instance_valid_key_name(self):
-        image_href = 'http://localhost/v1.1/images/2'
+        image_href = '76fa36fc-c930-4bf3-8c8a-ea2a2420deb6'
         flavor_ref = 'http://localhost/flavors/3'
         body = dict(server=dict(
             name='server_test', imageRef=image_href, flavorRef=flavor_ref,
@@ -1753,7 +1755,7 @@ class ServersControllerCreateTest(test.TestCase):
 
     def test_create_instance_with_config_drive(self):
         self.config_drive = True
-        image_href = 'http://localhost/v1.1/123/images/2'
+        image_href = '76fa36fc-c930-4bf3-8c8a-ea2a2420deb6'
         flavor_ref = 'http://localhost/v1.1/123/flavors/3'
         body = {
             'server': {
@@ -1781,7 +1783,7 @@ class ServersControllerCreateTest(test.TestCase):
 
     def test_create_instance_with_config_drive_as_id(self):
         self.config_drive = 2
-        image_href = 'http://localhost/v1.1/123/images/2'
+        image_href = '76fa36fc-c930-4bf3-8c8a-ea2a2420deb6'
         flavor_ref = 'http://localhost/v1.1/123/flavors/3'
         body = {
             'server': {
@@ -1793,7 +1795,7 @@ class ServersControllerCreateTest(test.TestCase):
                     'open': 'stack',
                 },
                 'personality': {},
-                'config_drive': 2,
+                'config_drive': image_href,
             },
         }
 
@@ -1810,7 +1812,7 @@ class ServersControllerCreateTest(test.TestCase):
 
     def test_create_instance_with_bad_config_drive(self):
         self.config_drive = "asdf"
-        image_href = 'http://localhost/v1.1/123/images/2'
+        image_href = '76fa36fc-c930-4bf3-8c8a-ea2a2420deb6'
         flavor_ref = 'http://localhost/v1.1/123/flavors/3'
         body = {
             'server': {
@@ -1835,7 +1837,7 @@ class ServersControllerCreateTest(test.TestCase):
                           self.controller.create, req, body)
 
     def test_create_instance_without_config_drive(self):
-        image_href = 'http://localhost/v1.1/123/images/2'
+        image_href = '76fa36fc-c930-4bf3-8c8a-ea2a2420deb6'
         flavor_ref = 'http://localhost/v1.1/123/flavors/3'
         body = {
             'server': {
@@ -1862,7 +1864,7 @@ class ServersControllerCreateTest(test.TestCase):
         self.assertFalse(server['config_drive'])
 
     def test_create_instance_bad_href(self):
-        image_href = 'http://localhost/v1.1/images/asdf'
+        image_href = 'asdf'
         flavor_ref = 'http://localhost/v1.1/flavors/3'
         body = dict(server=dict(
             name='server_test', imageRef=image_href, flavorRef=flavor_ref,
@@ -1877,7 +1879,7 @@ class ServersControllerCreateTest(test.TestCase):
                           self.controller.create, req, body)
 
     def test_create_instance_local_href(self):
-        image_id = "2"
+        image_uuid = '76fa36fc-c930-4bf3-8c8a-ea2a2420deb6'
         flavor_ref = 'http://localhost/v1.1/flavors/3'
         expected_flavor = {
             "id": "3",
@@ -1889,18 +1891,18 @@ class ServersControllerCreateTest(test.TestCase):
             ],
         }
         expected_image = {
-            "id": "2",
+            "id": image_uuid,
             "links": [
                 {
                     "rel": "bookmark",
-                    "href": 'http://localhost/fake/images/2',
+                    "href": 'http://localhost/fake/images/%s' % image_uuid,
                 },
             ],
         }
         body = {
             'server': {
                 'name': 'server_test',
-                'imageRef': image_id,
+                'imageRef': image_uuid,
                 'flavorRef': flavor_ref,
             },
         }
@@ -1916,12 +1918,11 @@ class ServersControllerCreateTest(test.TestCase):
         self.assertEqual(expected_image, server['image'])
 
     def test_create_instance_admin_pass(self):
-        image_href = 'http://localhost/v1.1/images/2'
-        flavor_ref = 'http://localhost/v1.1/flavors/3'
+        image_uuid = '76fa36fc-c930-4bf3-8c8a-ea2a2420deb6'
         body = {
             'server': {
                 'name': 'server_test',
-                'imageRef': 3,
+                'imageRef': image_uuid,
                 'flavorRef': 3,
                 'adminPass': 'testpass',
             },
