@@ -155,6 +155,11 @@ class Scheduler(object):
     def create_instance_db_entry(self, context, request_spec):
         """Create instance DB entry based on request_spec"""
         base_options = request_spec['instance_properties']
+
+        if base_options.get('id'):
+            # Instance has already been created
+            return db.instance_get(context, base_options['id'])
+
         image = request_spec['image']
         instance_type = request_spec.get('instance_type')
         security_group = request_spec.get('security_group', 'default')
