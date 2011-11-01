@@ -162,8 +162,11 @@ class ZoneManager(object):
         for compute in compute_nodes:
             all_disk = compute['local_gb']
             all_ram = compute['memory_mb']
-            host = compute['service']['host']
-
+            service = compute['service']
+            if not service:
+                LOG.warn(_("No service for compute ID %s") % compute['id'])
+                continue
+            host = service['host']
             compute_map[host] = dict(free_disk_gb=all_disk,
                                      free_ram_mb=all_ram,
                                      num_builds=0,
