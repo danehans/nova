@@ -168,7 +168,9 @@ class ZoneManager(object):
                                      free_ram_mb=all_ram,
                                      num_builds=0,
                                      num_resizes=0,
-                                     num_migrations=0)
+                                     num_migrations=0,
+                                     num_instances=0,
+                                     num_snapshots=0)
             # reserve 2G for dom0
             self.consume_resources(compute_map[host], 0, 2048)
 
@@ -178,6 +180,7 @@ class ZoneManager(object):
             disk = instance['local_gb']
             ram = instance['memory_mb']
             vm_state = instance['vm_state']
+            task_state = instance['task_state']
             compute_host = instance['host']
             compute = compute_map.get(compute_host)
             if compute:
@@ -188,6 +191,10 @@ class ZoneManager(object):
                     compute['num_resizes'] += 1
                 elif vm_state == vm_state.MIGRATING:
                     compute['num_migrations'] += 1
+                elif (task_state == task_states.IMAGE_SNAPSHOT or
+                            task_state == task_states.IMAGE_BACKUP):
+                    compute['num_snapshots'] += 1
+                compuate['num_instances'] += 1
                 self.consume_resources(compute, disk, ram)
             else:
                 logging.warn(_("Compute host %(compute_host)s not in DB") %

@@ -44,6 +44,9 @@ FLAGS = flags.FLAGS
 flags.DEFINE_integer('scheduler_max_ios_per_host',
         8,
         "Ignore hosts that have too many builds/resizes/snaps/migrations")
+flags.DEFINE_integer('scheduler_max_instances_per_host',
+        50,
+        "Ignore hosts that have too many instances")
 
 LOG = logging.getLogger('nova.scheduler.abstract_scheduler')
 
@@ -338,10 +341,8 @@ class RackspaceScheduler(driver.Scheduler):
         return weighted_hosts
 
     def filter_hosts(self, topic, request_spec, host_list):
-        """Filter the full host list returned from the ZoneManager. By default,
-        this method only applies the basic_ram_filter(), meaning all hosts
-        with at least enough RAM for the requested instance are returned.
-
+        """
+        Filter the full host list returned from the ZoneManager.
         Override in subclasses to provide greater selectivity.
         """
         def basic_ram_filter(hostname, capabilities, request_spec):
@@ -357,17 +358,35 @@ class RackspaceScheduler(driver.Scheduler):
         def io_ops_filter(hostname, capabilities, request_spec):
             """Only return hosts with sufficient available RAM."""
             num_builds = capabilities['num_builds']
-            num_snaps = capabilities['num_snaps']
-            num_migrates = capabilities['num_migrates']
+            num_migrations = capabilities['num_migrations']
+            num_snapshots = capabilities['num_snapshots']
+            num_resizes = capabilities['num_resizes']
             LOG.debug(_("****** IOS filter for '%(hostname)s': "
-                    "Builds=%(num_builds)s, Snaps=%(num_snaps)s, "
-                    "Migrates=%(num_migrates)s") % locals())
-            num_io_ops = num_builds + num_snaps + num_migrates
+                    "Builds=%(num_builds)s, Snaps=%(num_snapshots)s, "
+                    "Migrations=%(num_migrations)s, Resizes=%(num_resizes)s")
+                    % locals())
+            num_io_ops = (num_builds + num_snapshots + num_migrations +
+                    num_resizes)
             return num_io_ops < FLAGS.scheduler_max_ios_per_host
 
-        return [(host, services) for host, services in host_list
+        def num_instances_filter(hostname, capabilities, request_spec):
+            """Only return hosts with sufficient available RAM."""
+            num_instances = capabilities['num_instances']
+            LOG.debug(_("****** NumInstances filter for '%(hostname)s': "
+                    "Instances=%(num_instances)s") % locals())
+            return num_instances < FLAGS.scheduler_max_instances_per_host
+
+        results = [(host, services) for host, services in host_list
                 if basic_ram_filter(host, services, request_spec) and
-                        io_ops_filter(host, services, request_spec)]
+                        io_ops_filter(host, services, request_spec) and
+                        num_instances_filter(host, services, request_spec)]
+        # We have a list that passes hard rules... except we want to not
+        # use idle hosts (hosts with 0 instances) if we can avoid it.
+        non_idle_results = [(host, services) for host, services in results
+                if services['num_instances'] != 0]
+        if non_idle_results:
+            return non_idle_results
+        return results
 
     def weigh_hosts(self, request_spec, hosts):
         """This version assigns a weight of 1 to all hosts, making selection

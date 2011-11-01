@@ -93,13 +93,17 @@ class FakeZoneManager(zone_manager.ZoneManager):
     def get_host_list_from_db(self, context):
         return [
             ('host1', dict(free_disk_gb=1028, free_ram_mb=1028,
-                num_builds=0, num_snaps=0, num_migrates=0)),
+                num_builds=0, num_resizes=0, num_migrations=0,
+                num_instances=0, num_snapshots=0)),
             ('host2', dict(free_disk_gb=2048, free_ram_mb=2048,
-                num_builds=0, num_snaps=0, num_migrates=0)),
+                num_builds=0, num_resizes=0, num_migrations=0,
+                num_instances=0, num_snapshots=0)),
             ('host3', dict(free_disk_gb=4096, free_ram_mb=4096,
-                num_builds=0, num_snaps=0, num_migrates=0)),
+                num_builds=0, num_resizes=0, num_migrations=0,
+                num_instances=0, num_snapshots=0)),
             ('host4', dict(free_disk_gb=8192, free_ram_mb=8192,
-                num_builds=0, num_snaps=0, num_migrates=0))
+                num_builds=0, num_resizes=0, num_migrations=0,
+                num_instances=0, num_snapshots=0))
         ]
 
 
