@@ -32,6 +32,7 @@ def scale(hostinfo):
 class LeastCostTestCase(test.TestCase):
     def setUp(self):
         super(LeastCostTestCase, self).setUp()
+        self.flags(reserved_host_disk=0, reserved_host_memory=0)
 
         self.zone_manager = fake_zone_manager.FakeZoneManager()
 
