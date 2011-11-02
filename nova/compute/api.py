@@ -555,13 +555,12 @@ class API(base.Base):
         we waited for information from the scheduler or not.
         """
 
-        create_instance_here = False
-        if max_count == 1 and not FLAGS.enable_zone_routing:
-            # We can create the DB entry for the instance here, because
-            # we're only going to create 1 instance and we're in a single
-            # zone deployment.  This speeds up API responses for builds
-            # as we don't need to wait for the scheduler.
-            create_instance_here = True
+        # We can create the DB entry for the instance here if we're
+        # only going to create 1 instance and we're in a single
+        # zone deployment.  This speeds up API responses for builds
+        # as we don't need to wait for the scheduler.
+        create_instance_here = (max_count == 1 and
+                not FLAGS.enable_zone_routing)
 
         (instances, reservation_id) = self._create_instance(
                                context, instance_type,
