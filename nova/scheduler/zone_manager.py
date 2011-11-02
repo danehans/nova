@@ -22,9 +22,8 @@ import thread
 import traceback
 import UserDict
 
-from novaclient import v1_1 as novaclient
-
 from eventlet import greenpool
+from novaclient import v1_1 as novaclient
 
 from nova import db
 from nova import flags
@@ -33,9 +32,13 @@ from nova import utils
 
 FLAGS = flags.FLAGS
 flags.DEFINE_integer('zone_db_check_interval', 60,
-                    'Seconds between getting fresh zone info from db.')
+        'Seconds between getting fresh zone info from db.')
 flags.DEFINE_integer('zone_failures_to_offline', 3,
-             'Number of consecutive errors before marking zone offline')
+        'Number of consecutive errors before marking zone offline')
+flags.DEFINE_integer('reserved_host_disk', 0,
+        'Amount of disk in GB to reserve for host/dom0')
+flags.DEFINE_integer('reserved_host_memory', 512,
+        'Amount of memory in MB to reserve for host/dom0')
 
 
 class ZoneState(object):
@@ -228,12 +231,19 @@ class ZoneManager(object):
         for compute in compute_nodes:
             all_disk = compute['local_gb']
             all_ram = compute['memory_mb']
-            host = compute['service']['host']
+            service = compute['service']
+            if not service:
+                LOG.warn(_("No service for compute ID %s") % compute['id'])
+                continue
 
+            host = service['host']
             caps = self.service_states.get(host, None)
-            host_info_map[host] = HostInfo(host, caps=caps,
-                                           free_disk_gb=all_disk,
-                                           free_ram_mb=all_ram)
+            host_info = HostInfo(host, caps=caps,
+                    free_disk_gb=all_disk, free_ram_mb=all_ram)
+            # Reserve resources for host/dom0
+            host_info.consume_resources(FLAGS.reserved_host_disk,
+                    FLAGS.reserved_host_memory)
+            host_info_map[host] = host_info
 
         # "Consume" resources from the host the instance resides on.
         instances = self._instance_get_all(context)
