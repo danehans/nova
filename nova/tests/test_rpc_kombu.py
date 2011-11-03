@@ -22,6 +22,7 @@ Unit Tests for remote procedure calls using kombu
 from nova import context
 from nova import log as logging
 from nova import test
+from nova import utils
 from nova.rpc import impl_kombu
 from nova.tests import test_rpc_common
 
@@ -75,8 +76,9 @@ class RpcKombuTestCase(test_rpc_common._BaseRpcTestCase):
         def _callback(message):
             self.received_message = message
 
-        conn.declare_direct_consumer('a_direct', _callback)
-        conn.direct_send('a_direct', message)
+        queue = 'direct-%s' % utils.gen_uuid()
+        conn.declare_direct_consumer(queue, _callback)
+        conn.direct_send(queue, message)
         conn.consume(limit=1)
         conn.close()
 

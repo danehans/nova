@@ -19,6 +19,8 @@
 Unit Tests for remote procedure calls shared between all implementations
 """
 
+import eventlet
+
 from nova import context
 from nova import log as logging
 from nova.rpc.common import RemoteError
@@ -150,6 +152,27 @@ class _BaseRpcTestCase(test.TestCase):
                                               "value": value}})
         conn.close()
         self.assertEqual(value, result)
+
+    def test_many_nested_calls(self):
+        self.flags(fake_rabbit=False)
+        value = 42
+        pile = eventlet.GreenPile()
+        for x in xrange(29):
+            pile.spawn(self.test_nested_calls),
+            for result in pile:
+                pass
+
+    def test_many_calls(self):
+        self.flags(fake_rabbit=False)
+        value = 42
+        pile = eventlet.GreenPile()
+        for x in xrange(29):
+            pile.spawn(self.rpc.call,
+                       self.context,
+                       'test', {"method": "echo",
+                                "args": {"value": value}})
+        for result in pile:
+            self.assertEqual(value, result)
 
 
 class TestReceiver(object):
