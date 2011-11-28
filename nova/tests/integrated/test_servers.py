@@ -29,15 +29,6 @@ LOG = logging.getLogger('nova.tests.integrated')
 
 class ServersTest(integrated_helpers._IntegratedTestBase):
 
-    def _wait_for_state_change(self, server, status):
-        for i in xrange(0, 50):
-            server = self.api.get_server(server['id'])
-            if server['status'] != status:
-                break
-            time.sleep(.1)
-
-        return server
-
     def _restart_compute_service(self, periodic_interval=None):
         """restart compute service. NOTE: fake driver forgets all instances."""
         self.compute.kill()
@@ -68,9 +59,6 @@ class ServersTest(integrated_helpers._IntegratedTestBase):
 
         found_server = self.api.get_server(created_server_id)
         self.assertEqual(created_server_id, found_server['id'])
-
-        found_server = self._wait_for_state_change(found_server, 'BUILD')
-
         self.assertEqual('ERROR', found_server['status'])
         self._delete_server(created_server_id)
 
@@ -122,17 +110,15 @@ class ServersTest(integrated_helpers._IntegratedTestBase):
         # Check it's there
         found_server = self.api.get_server(created_server_id)
         self.assertEqual(created_server_id, found_server['id'])
+        # It should be available...
+        # TODO(justinsb): Mock doesn't yet do this...
+        self.assertEqual('ACTIVE', found_server['status'])
 
         # It should also be in the all-servers list
         servers = self.api.get_servers()
         server_ids = [server['id'] for server in servers]
         self.assertTrue(created_server_id in server_ids)
 
-        found_server = self._wait_for_state_change(found_server, 'BUILD')
-
-        # It should be available...
-        # TODO(justinsb): Mock doesn't yet do this...
-        self.assertEqual('ACTIVE', found_server['status'])
         servers = self.api.get_servers(detail=True)
         for server in servers:
             self.assertTrue("image" in server)
@@ -155,9 +141,7 @@ class ServersTest(integrated_helpers._IntegratedTestBase):
         self.assertTrue(created_server['id'])
         created_server_id = created_server['id']
 
-        # Wait for it to finish being created
-        found_server = self._wait_for_state_change(created_server, 'BUILD')
-
+        found_server = self.api.get_server(created_server_id)
         # It should be available...
         self.assertEqual('ACTIVE', found_server['status'])
 
@@ -179,7 +163,7 @@ class ServersTest(integrated_helpers._IntegratedTestBase):
         self.api.delete_server(created_server_id)
 
         # Wait for queued deletion
-        found_server = self._wait_for_state_change(found_server, 'ACTIVE')
+        found_server = self.api.get_server(created_server_id)
         self.assertEqual('DELETED', found_server['status'])
 
         # Wait for real deletion
@@ -197,24 +181,21 @@ class ServersTest(integrated_helpers._IntegratedTestBase):
         self.assertTrue(created_server['id'])
         created_server_id = created_server['id']
 
-        # Wait for it to finish being created
-        found_server = self._wait_for_state_change(created_server, 'BUILD')
-
+        found_server = self.api.get_server(created_server_id)
         # It should be available...
         self.assertEqual('ACTIVE', found_server['status'])
 
         # Delete the server
         self.api.delete_server(created_server_id)
 
-        # Wait for queued deletion
-        found_server = self._wait_for_state_change(found_server, 'ACTIVE')
+        found_server = self.api.get_server(created_server_id)
         self.assertEqual('DELETED', found_server['status'])
 
         # Restore server
         self.api.post_server_action(created_server_id, {'restore': {}})
 
         # Wait for server to become active again
-        found_server = self._wait_for_state_change(found_server, 'DELETED')
+        found_server = self.api.get_server(created_server_id)
         self.assertEqual('ACTIVE', found_server['status'])
 
     def test_deferred_delete_force(self):
@@ -229,9 +210,7 @@ class ServersTest(integrated_helpers._IntegratedTestBase):
         self.assertTrue(created_server['id'])
         created_server_id = created_server['id']
 
-        # Wait for it to finish being created
-        found_server = self._wait_for_state_change(created_server, 'BUILD')
-
+        found_server = self.api.get_server(created_server_id)
         # It should be available...
         self.assertEqual('ACTIVE', found_server['status'])
 
@@ -239,7 +218,7 @@ class ServersTest(integrated_helpers._IntegratedTestBase):
         self.api.delete_server(created_server_id)
 
         # Wait for queued deletion
-        found_server = self._wait_for_state_change(found_server, 'ACTIVE')
+        found_server = self.api.get_server(created_server_id)
         self.assertEqual('DELETED', found_server['status'])
 
         # Force delete server
@@ -327,8 +306,6 @@ class ServersTest(integrated_helpers._IntegratedTestBase):
         self.assertTrue(created_server['id'])
         created_server_id = created_server['id']
 
-        created_server = self._wait_for_state_change(created_server, 'BUILD')
-
         # rebuild the server with metadata
         post = {}
         post['rebuild'] = {
@@ -338,7 +315,6 @@ class ServersTest(integrated_helpers._IntegratedTestBase):
 
         self.api.post_server_action(created_server_id, post)
         LOG.debug("rebuilt server: %s" % created_server)
-        self.assertTrue(created_server['id'])
 
         found_server = self.api.get_server(created_server_id)
         self.assertEqual(created_server_id, found_server['id'])
@@ -362,8 +338,6 @@ class ServersTest(integrated_helpers._IntegratedTestBase):
         self.assertTrue(created_server['id'])
         created_server_id = created_server['id']
 
-        created_server = self._wait_for_state_change(created_server, 'BUILD')
-
         # rebuild the server with metadata
         post = {}
         post['rebuild'] = {
@@ -379,7 +353,6 @@ class ServersTest(integrated_helpers._IntegratedTestBase):
 
         self.api.post_server_action(created_server_id, post)
         LOG.debug("rebuilt server: %s" % created_server)
-        self.assertTrue(created_server['id'])
 
         found_server = self.api.get_server(created_server_id)
         self.assertEqual(created_server_id, found_server['id'])
@@ -408,8 +381,6 @@ class ServersTest(integrated_helpers._IntegratedTestBase):
         self.assertTrue(created_server['id'])
         created_server_id = created_server['id']
 
-        created_server = self._wait_for_state_change(created_server, 'BUILD')
-
         # rebuild the server with metadata
         post = {}
         post['rebuild'] = {
@@ -422,7 +393,6 @@ class ServersTest(integrated_helpers._IntegratedTestBase):
 
         self.api.post_server_action(created_server_id, post)
         LOG.debug("rebuilt server: %s" % created_server)
-        self.assertTrue(created_server['id'])
 
         found_server = self.api.get_server(created_server_id)
         self.assertEqual(created_server_id, found_server['id'])

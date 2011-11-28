@@ -50,30 +50,6 @@ class VolumesTest(integrated_helpers._IntegratedTestBase):
         for volume in volumes:
             LOG.debug("volume: %s" % volume)
 
-    def _poll_while(self, volume_id, continue_states, max_retries=5):
-        """Poll (briefly) while the state is in continue_states."""
-        retries = 0
-        while True:
-            try:
-                found_volume = self.api.get_volume(volume_id)
-            except client.OpenStackApiNotFoundException:
-                found_volume = None
-                LOG.debug("Got 404, proceeding")
-                break
-
-            LOG.debug("Found %s" % found_volume)
-
-            self.assertEqual(volume_id, found_volume['id'])
-
-            if not found_volume['status'] in continue_states:
-                break
-
-            time.sleep(1)
-            retries = retries + 1
-            if retries > max_retries:
-                break
-        return found_volume
-
     def test_create_and_delete_volume(self):
         """Creates and deletes a volume."""
 
@@ -86,26 +62,20 @@ class VolumesTest(integrated_helpers._IntegratedTestBase):
         # Check it's there
         found_volume = self.api.get_volume(created_volume_id)
         self.assertEqual(created_volume_id, found_volume['id'])
+        # It should be available...
+        self.assertEqual('available', found_volume['status'])
 
         # It should also be in the all-volume list
         volumes = self.api.get_volumes()
         volume_names = [volume['id'] for volume in volumes]
         self.assertTrue(created_volume_id in volume_names)
 
-        # Wait (briefly) for creation. Delay is due to the 'message queue'
-        found_volume = self._poll_while(created_volume_id, ['creating'])
-
-        # It should be available...
-        self.assertEqual('available', found_volume['status'])
-
         # Delete the volume
         self.api.delete_volume(created_volume_id)
 
-        # Wait (briefly) for deletion. Delay is due to the 'message queue'
-        found_volume = self._poll_while(created_volume_id, ['deleting'])
-
         # Should be gone
-        self.assertFalse(found_volume)
+        self.assertRaises(client.OpenStackApiNotFoundException,
+                self.api.get_volume, created_volume_id)
 
         LOG.debug("Logs: %s" % driver.LoggingVolumeDriver.all_logs())
 
@@ -151,7 +121,6 @@ class VolumesTest(integrated_helpers._IntegratedTestBase):
         created_volume = self.api.post_volume({'volume': {'size': 1}})
         LOG.debug("created_volume: %s" % created_volume)
         volume_id = created_volume['id']
-        self._poll_while(volume_id, ['creating'])
 
         # Check we've got different IDs
         self.assertNotEqual(server_id, volume_id)
@@ -194,23 +163,8 @@ class VolumesTest(integrated_helpers._IntegratedTestBase):
         # This is just an implementation detail, but let's check it...
         self.assertEquals(volume_id, attachment_id)
 
-        # NOTE(justinsb): There's an issue with the attach code, in that
-        # it's currently asynchronous and not recorded until the attach
-        # completes.  So the caller must be 'smart', like this...
-        attach_done = None
-        retries = 0
-        while True:
-            try:
-                attach_done = self.api.get_server_volume(server_id,
-                                                             attachment_id)
-                break
-            except client.OpenStackApiNotFoundException:
-                LOG.debug("Got 404, waiting")
-
-            time.sleep(1)
-            retries = retries + 1
-            if retries > 10:
-                break
+        attach_done = self.api.get_server_volume(server_id,
+                attachment_id)
 
         expect_attach = {}
         expect_attach['id'] = volume_id
@@ -242,20 +196,8 @@ class VolumesTest(integrated_helpers._IntegratedTestBase):
         # Detach should work
         self.api.delete_server_volume(server_id, attachment_id)
 
-        # Again, it's async, so wait...
-        retries = 0
-        while True:
-            try:
-                attachment = self.api.get_server_volume(server_id,
-                                                        attachment_id)
-                LOG.debug("Attachment still there: %s" % attachment)
-            except client.OpenStackApiNotFoundException:
-                LOG.debug("Got 404, delete done")
-                break
-
-            time.sleep(1)
-            retries = retries + 1
-            self.assertTrue(retries < 10)
+        self.assertRaises(client.OpenStackApiNotFoundException,
+                self.api.get_server_volume, server_id, attachment_id)
 
         # Should be no attachments again
         attachments = self.api.get_server_volumes(server_id)

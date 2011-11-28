@@ -105,8 +105,12 @@ def multicall(context, topic, msg):
         return
     args = msg.get('args', {})
 
-    consumer = CONSUMERS[topic][0]
-    return consumer.call(context, method, args)
+    try:
+        consumer = CONSUMERS[topic][0]
+    except (KeyError, IndexError):
+        return iter([None])
+    else:
+        return consumer.call(context, method, args)
 
 
 def call(context, topic, msg):

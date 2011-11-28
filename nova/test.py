@@ -29,6 +29,7 @@ import shutil
 import uuid
 import unittest
 
+import eventlet
 import mox
 import nose.plugins.skip
 import nova.image.fake
@@ -43,6 +44,9 @@ from nova import rpc
 from nova import utils
 from nova import service
 from nova.virt import fake
+
+
+eventlet.monkey_patch()
 
 
 FLAGS = flags.FLAGS
@@ -131,6 +135,8 @@ class TestCase(unittest.TestCase):
         self.injected = []
         self._services = []
         self._original_flags = FLAGS.FlagValuesDict()
+        if FLAGS.fake_rabbit:
+            self.flags(rpc_backend='nova.tests.rpc.fake')
 
     def tearDown(self):
         """Runs after each test method to tear down test environment."""

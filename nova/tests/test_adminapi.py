@@ -61,15 +61,6 @@ class AdminApiTestCase(test.TestCase):
         self.stubs.Set(fake._FakeImageService, 'show', fake_show)
         self.stubs.Set(fake._FakeImageService, 'show_by_name', fake_show)
 
-        # NOTE(vish): set up a manual wait so rpc.cast has a chance to finish
-        rpc_cast = rpc.cast
-
-        def finish_cast(*args, **kwargs):
-            rpc_cast(*args, **kwargs)
-            greenthread.sleep(0.2)
-
-        self.stubs.Set(rpc, 'cast', finish_cast)
-
     def test_block_external_ips(self):
         """Make sure provider firewall rules are created."""
         result = self.api.block_external_addresses(self.context, '1.1.1.1/32')
