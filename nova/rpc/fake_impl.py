@@ -13,6 +13,9 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+"""Fake RPC implementation which calls proxy methods directly with no
+queues.  Casts will block, but this is very useful for tests.
+"""
 
 import sys
 import traceback
@@ -25,7 +28,6 @@ CONSUMERS = {}
 
 
 class RpcContext(context.RequestContext):
-
     def __init__(self, *args, **kwargs):
         super(RpcContext, self).__init__(*args, **kwargs)
         self._response = []
@@ -48,7 +50,6 @@ class Consumer(object):
         node_args = dict((str(k), v) for k, v in args.iteritems())
 
         ctxt = RpcContext.from_dict(context.to_dict())
-
         try:
             rval = node_func(context=ctxt, **node_args)
             # Caller might have called ctxt.reply() manually
@@ -56,7 +57,8 @@ class Consumer(object):
                 if failure:
                     raise failure[0], failure[1], failure[2]
                 yield reply
-            # if ending not 'sent'..
+            # if ending not 'sent'...we might have more data to
+            # return from the function itself
             if not ctxt._done:
                 if isinstance(rval, types.GeneratorType):
                     for val in rval:

@@ -135,8 +135,6 @@ class TestCase(unittest.TestCase):
         self.injected = []
         self._services = []
         self._original_flags = FLAGS.FlagValuesDict()
-        if FLAGS.fake_rabbit:
-            self.flags(rpc_backend='nova.tests.rpc.fake')
 
     def tearDown(self):
         """Runs after each test method to tear down test environment."""
