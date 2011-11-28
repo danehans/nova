@@ -61,6 +61,10 @@ class AdminApiTestCase(test.TestCase):
         self.stubs.Set(fake._FakeImageService, 'show', fake_show)
         self.stubs.Set(fake._FakeImageService, 'show_by_name', fake_show)
 
+        # NOTE(comstud): Make 'cast' behave like a 'call' which will
+        # ensure that operations complete
+        self.stubs.Set(rpc, 'cast', rpc.call)
+
     def test_block_external_ips(self):
         """Make sure provider firewall rules are created."""
         result = self.api.block_external_addresses(self.context, '1.1.1.1/32')
