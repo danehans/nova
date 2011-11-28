@@ -22,13 +22,13 @@ Unit Tests for remote procedure calls using carrot
 from nova import context
 from nova import log as logging
 from nova.rpc import impl_carrot
-from nova.tests import test_rpc_common
+from nova.tests.rpc import test_common
 
 
 LOG = logging.getLogger('nova.tests.rpc')
 
 
-class RpcCarrotTestCase(test_rpc_common._BaseRpcTestCase):
+class RpcCarrotTestCase(test_common._BaseRpcTestCase):
     def setUp(self):
         self.rpc = impl_carrot
         super(RpcCarrotTestCase, self).setUp()
