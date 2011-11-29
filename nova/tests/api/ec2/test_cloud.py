@@ -120,6 +120,10 @@ class CloudTestCase(test.TestCase):
         self.stubs.Set(fake._FakeImageService, 'show', fake_show)
         self.stubs.Set(fake._FakeImageService, 'show_by_name', fake_show)
 
+        # NOTE(comstud): Make 'cast' behave like a 'call' which will
+        # ensure that operations complete
+        self.stubs.Set(rpc, 'cast', rpc.call)
+
         # make sure we can map ami-00000001/2 to a uuid in FakeImageService
         db.api.s3_image_create(self.context,
                                'cedef40a-ed67-4d10-800e-17455edce175')
@@ -1208,6 +1212,9 @@ class CloudTestCase(test.TestCase):
 
         self.stubs.UnsetAll()
         self.stubs.Set(fake._FakeImageService, 'show', fake_show)
+        # NOTE(comstud): Make 'cast' behave like a 'call' which will
+        # ensure that operations complete
+        self.stubs.Set(rpc, 'cast', rpc.call)
 
         result = run_instances(self.context, **kwargs)
         instance = result['instancesSet'][0]
@@ -1234,6 +1241,9 @@ class CloudTestCase(test.TestCase):
                     'status': 'active'}
 
         self.stubs.Set(fake._FakeImageService, 'show', fake_show)
+        # NOTE(comstud): Make 'cast' behave like a 'call' which will
+        # ensure that operations complete
+        self.stubs.Set(rpc, 'cast', rpc.call)
 
         def fake_format(*args, **kwargs):
             pass
