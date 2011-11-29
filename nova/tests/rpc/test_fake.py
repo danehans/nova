@@ -20,7 +20,7 @@ Unit Tests for remote procedure calls using fake_impl
 """
 
 from nova import log as logging
-from nova.rpc import fake_impl
+from nova.rpc import impl_fake
 from nova.tests.rpc import common
 
 
@@ -29,7 +29,7 @@ LOG = logging.getLogger('nova.tests.rpc')
 
 class RpcFakeTestCase(common._BaseRpcTestCase):
     def setUp(self):
-        self.rpc = fake_impl
+        self.rpc = impl_fake
         super(RpcFakeTestCase, self).setUp()
 
     def tearDown(self):
