@@ -446,10 +446,11 @@ class API(base.Base):
         instance = dict(launch_index=num, **base_options)
         instance = self.db.instance_create(context, instance)
         instance_id = instance['id']
+        instance_uuid = instance['uuid']
 
         for security_group_id in security_groups:
             self.db.instance_add_security_group(elevated,
-                                                instance_id,
+                                                instance_uuid,
                                                 security_group_id)
 
         # BlockDeviceMapping table
@@ -676,7 +677,7 @@ class API(base.Base):
                      {'method': 'refresh_provider_fw_rules', 'args': {}})
 
     def _is_security_group_associated_with_server(self, security_group,
-                                                instance_id):
+                                                  instance_uuid):
         """Check if the security group is already associated
            with the instance. If Yes, return True.
         """
@@ -688,10 +689,9 @@ class API(base.Base):
         if not instances:
             return False
 
-        inst_id = None
-        for inst_id in (instance['id'] for instance in instances \
-                        if instance_id == instance['id']):
-            return True
+        for inst in instances:
+            if (instance_uuid == inst['uuid']):
+                return True
 
         return False
 
@@ -702,20 +702,21 @@ class API(base.Base):
                 security_group_name)
 
         instance_id = instance['id']
+        instance_uuid = instance['uuid']
 
         #check if the security group is associated with the server
         if self._is_security_group_associated_with_server(security_group,
-                                                          instance_id):
+                                                          instance_uuid):
             raise exception.SecurityGroupExistsForInstance(
                                         security_group_id=security_group['id'],
-                                        instance_id=instance_id)
+                                        instance_id=instance_uuid)
 
         #check if the instance is in running state
         if instance['power_state'] != power_state.RUNNING:
-            raise exception.InstanceNotRunning(instance_id=instance_id)
+            raise exception.InstanceNotRunning(instance_id=instance_uuid)
 
         self.db.instance_add_security_group(context.elevated(),
-                                            instance_id,
+                                            instance_uuid,
                                             security_group['id'])
         host = instance['host']
         rpc.cast(context,
@@ -730,20 +731,21 @@ class API(base.Base):
                 security_group_name)
 
         instance_id = instance['id']
+        instance_uuid = instance['uuid']
 
         #check if the security group is associated with the server
         if not self._is_security_group_associated_with_server(security_group,
-                                                              instance_id):
+                                                              instance_uuid):
             raise exception.SecurityGroupNotExistsForInstance(
                                     security_group_id=security_group['id'],
-                                    instance_id=instance_id)
+                                    instance_id=instance_uuid)
 
         #check if the instance is in running state
         if instance['power_state'] != power_state.RUNNING:
-            raise exception.InstanceNotRunning(instance_id=instance_id)
+            raise exception.InstanceNotRunning(instance_id=instance_uuid)
 
         self.db.instance_remove_security_group(context.elevated(),
-                                               instance_id,
+                                               instance_uuid,
                                                security_group['id'])
         host = instance['host']
         rpc.cast(context,
@@ -851,7 +853,6 @@ class API(base.Base):
     @scheduler_api.reroute_compute("stop")
     def stop(self, context, instance):
         """Stop an instance."""
-        instance_id = instance["id"]
         instance_uuid = instance["uuid"]
         LOG.debug(_("Going to try to stop %s"), instance_uuid)
 
@@ -868,12 +869,11 @@ class API(base.Base):
         host = instance['host']
         if host:
             self._cast_compute_message('stop_instance', context,
-                    instance_id, host)
+                    instance_uuid, host)
 
     def start(self, context, instance):
         """Start an instance."""
         vm_state = instance["vm_state"]
-        instance_id = instance["id"]
         instance_uuid = instance["uuid"]
         LOG.debug(_("Going to try to start %s"), instance_uuid)
 
@@ -894,7 +894,7 @@ class API(base.Base):
                  FLAGS.scheduler_topic,
                  {"method": "start_instance",
                   "args": {"topic": FLAGS.compute_topic,
-                           "instance_id": instance_id}})
+                           "instance_uuid": instance_uuid}})
 
     def get_active_by_window(self, context, begin, end=None, project_id=None):
         """Get instances that were continuously active over a window."""
@@ -1053,8 +1053,7 @@ class API(base.Base):
         kwargs = {'method': method, 'args': params}
         rpc.cast(context, queue, kwargs)
 
-    def _call_compute_message(self, method, context, instance_id, host=None,
-                              params=None):
+    def _call_compute_message(self, method, context, instance, params=None):
         """Generic handler for RPC calls to compute.
 
         :param params: Optional dictionary of arguments to be passed to the
@@ -1064,14 +1063,9 @@ class API(base.Base):
         """
         if not params:
             params = {}
-        if not host:
-            instance = self.get(context, instance_id)
-            host = instance['host']
+        host = instance['host']
         queue = self.db.queue_get_for(context, FLAGS.compute_topic, host)
-        if utils.is_uuid_like(instance_id):
-            params['instance_uuid'] = instance_id
-        else:
-            params['instance_id'] = instance_id
+        params['instance_uuid'] = instance['uuid']
         kwargs = {'method': method, 'args': params}
         return rpc.call(context, queue, kwargs)
 
@@ -1313,23 +1307,19 @@ class API(base.Base):
     @scheduler_api.reroute_compute("add_fixed_ip")
     def add_fixed_ip(self, context, instance, network_id):
         """Add fixed_ip from specified network to given instance."""
-        #NOTE(bcwaldon): We need to use the integer id since the
-        # network manager doesn't support uuids
-        instance_id = instance['id']
+        instance_uuid = instance['uuid']
         self._cast_compute_message('add_fixed_ip_to_instance',
                                    context,
-                                   instance_id,
+                                   instance_uuid,
                                    params=dict(network_id=network_id))
 
     @scheduler_api.reroute_compute("remove_fixed_ip")
     def remove_fixed_ip(self, context, instance, address):
         """Remove fixed_ip from specified network to given instance."""
-        #NOTE(bcwaldon): We need to use the integer id since the
-        # network manager doesn't support uuids
-        instance_id = instance['id']
+        instance_uuid = instance['uuid']
         self._cast_compute_message('remove_fixed_ip_from_instance',
                                    context,
-                                   instance_id,
+                                   instance_uuid,
                                    params=dict(address=address))
 
     #TODO(tr3buchet): how to run this in the correct zone?
@@ -1385,7 +1375,7 @@ class API(base.Base):
         """Retrieve diagnostics for the given instance."""
         return self._call_compute_message("get_diagnostics",
                                           context,
-                                          instance['id'])
+                                          instance)
 
     def get_actions(self, context, instance):
         """Retrieve actions for the given instance."""
@@ -1467,7 +1457,7 @@ class API(base.Base):
         """Get a url to an AJAX Console."""
         output = self._call_compute_message('get_ajax_console',
                                             context,
-                                            instance['id'])
+                                            instance)
         rpc.cast(context, '%s' % FLAGS.ajax_console_proxy_topic,
                  {'method': 'authorize_ajax_console',
                   'args': {'token': output['token'], 'host': output['host'],
@@ -1479,7 +1469,7 @@ class API(base.Base):
         """Get a url to a VNC Console."""
         output = self._call_compute_message('get_vnc_console',
                                             context,
-                                            instance['id'])
+                                            instance)
         rpc.call(context, '%s' % FLAGS.vncproxy_topic,
                  {'method': 'authorize_vnc_console',
                   'args': {'token': output['token'],
@@ -1495,10 +1485,9 @@ class API(base.Base):
 
     def get_console_output(self, context, instance):
         """Get console output for an an instance."""
-        instance_id = instance['id']
         return self._call_compute_message('get_console_output',
                                           context,
-                                          instance_id)
+                                          instance)
 
     def lock(self, context, instance):
         """Lock the given instance."""
@@ -1516,13 +1505,12 @@ class API(base.Base):
 
     def reset_network(self, context, instance):
         """Reset networking on the instance."""
-        instance_id = instance['id']
-        self._cast_compute_message('reset_network', context, instance_id)
+        self._cast_compute_message('reset_network', context, instance['uuid'])
 
     def inject_network_info(self, context, instance):
         """Inject network info for the instance."""
-        instance_id = instance['id']
-        self._cast_compute_message('inject_network_info', context, instance_id)
+        self._cast_compute_message('inject_network_info', context,
+                                   instance['uuid'])
 
     def attach_volume(self, context, instance, volume_id, device):
         """Attach an existing volume to an existing instance."""

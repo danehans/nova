@@ -233,17 +233,21 @@ class ComputeTestCase(BaseTestCase):
 
     def test_stop(self):
         """Ensure instance can be stopped"""
-        instance_id = self._create_instance()
+        instance = self._create_fake_instance()
+        instance_id = instance['id']
+        instance_uuid = instance['uuid']
         self.compute.run_instance(self.context, instance_id)
-        self.compute.stop_instance(self.context, instance_id)
+        self.compute.stop_instance(self.context, instance_uuid)
         self.compute.terminate_instance(self.context, instance_id)
 
     def test_start(self):
         """Ensure instance can be started"""
-        instance_id = self._create_instance()
+        instance = self._create_fake_instance()
+        instance_id = instance['id']
+        instance_uuid = instance['uuid']
         self.compute.run_instance(self.context, instance_id)
-        self.compute.stop_instance(self.context, instance_id)
-        self.compute.start_instance(self.context, instance_id)
+        self.compute.stop_instance(self.context, instance_uuid)
+        self.compute.start_instance(self.context, instance_uuid)
         self.compute.terminate_instance(self.context, instance_id)
 
     def test_rescue(self):
@@ -354,6 +358,42 @@ class ComputeTestCase(BaseTestCase):
                 "File Contents")
         self.compute.terminate_instance(self.context, instance_id)
 
+    def test_inject_network_info(self):
+        """Ensure we can inject network info"""
+        called = {'inject': False}
+
+        def fake_driver_inject_network(self, instance, network_info):
+            called['inject'] = True
+
+        self.stubs.Set(nova.virt.fake.FakeConnection, 'inject_network_info',
+                       fake_driver_inject_network)
+
+        instance = self._create_fake_instance()
+        instance_id = instance['id']
+        instance_uuid = instance['uuid']
+        self.compute.run_instance(self.context, instance_id)
+        self.compute.inject_network_info(self.context, instance_uuid)
+        self.assertTrue(called['inject'])
+        self.compute.terminate_instance(self.context, instance_id)
+
+    def test_reset_network(self):
+        """Ensure we can reset networking on an instance"""
+        called = {'reset': False}
+
+        def fake_driver_reset_network(self, instance):
+            called['reset'] = True
+
+        self.stubs.Set(nova.virt.fake.FakeConnection, 'reset_network',
+                       fake_driver_reset_network)
+
+        instance = self._create_fake_instance()
+        instance_id = instance['id']
+        instance_uuid = instance['uuid']
+        self.compute.run_instance(self.context, instance_id)
+        self.compute.reset_network(self.context, instance_uuid)
+        self.assertTrue(called['reset'])
+        self.compute.terminate_instance(self.context, instance_id)
+
     def test_agent_update(self):
         """Ensure instance can have its agent updated"""
         instance_id = self._create_instance()
@@ -374,33 +414,42 @@ class ComputeTestCase(BaseTestCase):
 
     def test_console_output(self):
         """Make sure we can get console output from instance"""
-        instance_id = self._create_instance()
-        self.compute.run_instance(self.context, instance_id)
+        instance = self._create_fake_instance()
+        self.compute.run_instance(self.context, instance['id'])
 
         console = self.compute.get_console_output(self.context,
-                                                        instance_id)
+                                                  instance['uuid'])
         self.assert_(console)
-        self.compute.terminate_instance(self.context, instance_id)
+        self.compute.terminate_instance(self.context, instance['id'])
 
     def test_ajax_console(self):
         """Make sure we can get console output from instance"""
-        instance_id = self._create_instance()
-        self.compute.run_instance(self.context, instance_id)
+        instance = self._create_fake_instance()
+        self.compute.run_instance(self.context, instance['id'])
 
         console = self.compute.get_ajax_console(self.context,
-                                                instance_id)
+                                                instance['uuid'])
         self.assert_(set(['token', 'host', 'port']).issubset(console.keys()))
-        self.compute.terminate_instance(self.context, instance_id)
+        self.compute.terminate_instance(self.context, instance['id'])
 
     def test_vnc_console(self):
         """Make sure we can a vnc console for an instance."""
-        instance_id = self._create_instance()
-        self.compute.run_instance(self.context, instance_id)
+        instance = self._create_fake_instance()
+        self.compute.run_instance(self.context, instance['id'])
 
-        console = self.compute.get_vnc_console(self.context,
-                                               instance_id)
+        console = self.compute.get_vnc_console(self.context, instance['uuid'])
         self.assert_(console)
-        self.compute.terminate_instance(self.context, instance_id)
+        self.compute.terminate_instance(self.context, instance['id'])
+
+    def test_diagnostics(self):
+        """Make sure we can get diagnostics for an instance."""
+        instance = self._create_fake_instance()
+        self.compute.run_instance(self.context, instance['id'])
+
+        diagnostics = self.compute.get_diagnostics(self.context,
+                                                   instance['uuid'])
+        self.assertEqual(diagnostics, 'FAKE_DIAGNOSTICS')
+        self.compute.terminate_instance(self.context, instance['id'])
 
     def test_add_fixed_ip_usage_notification(self):
         def dummy(*args, **kwargs):
@@ -413,12 +462,12 @@ class ComputeTestCase(BaseTestCase):
         self.stubs.Set(nova.compute.manager.ComputeManager,
                        'reset_network', dummy)
 
-        instance_id = self._create_instance()
+        instance = self._create_fake_instance()
+        instance_id = instance['id']
+        instance_uuid = instance['uuid']
 
         self.assertEquals(len(test_notifier.NOTIFICATIONS), 0)
-        self.compute.add_fixed_ip_to_instance(self.context,
-                                              instance_id,
-                                              1)
+        self.compute.add_fixed_ip_to_instance(self.context, instance_uuid, 1)
 
         self.assertEquals(len(test_notifier.NOTIFICATIONS), 1)
         self.compute.terminate_instance(self.context, instance_id)
@@ -434,12 +483,14 @@ class ComputeTestCase(BaseTestCase):
         self.stubs.Set(nova.compute.manager.ComputeManager,
                        'reset_network', dummy)
 
-        instance_id = self._create_instance()
+        instance = self._create_fake_instance()
+        instance_id = instance['id']
+        instance_uuid = instance['uuid']
 
         self.assertEquals(len(test_notifier.NOTIFICATIONS), 0)
         self.compute.remove_fixed_ip_from_instance(self.context,
-                                              instance_id,
-                                              1)
+                                                   instance_uuid,
+                                                   1)
 
         self.assertEquals(len(test_notifier.NOTIFICATIONS), 1)
         self.compute.terminate_instance(self.context, instance_id)
@@ -2168,16 +2219,16 @@ class ComputeAPITestCase(BaseTestCase):
         self.compute_api.attach_volume(self.context, instance, 1, '/dev/vdb')
 
     def test_inject_network_info(self):
-        instance_id = self._create_instance()
-        self.compute.run_instance(self.context, instance_id)
-        instance = self.compute_api.get(self.context, instance_id)
+        instance = self._create_fake_instance()
+        self.compute.run_instance(self.context, instance['id'])
+        instance = self.compute_api.get(self.context, instance['uuid'])
         self.compute_api.inject_network_info(self.context, instance)
         self.compute_api.delete(self.context, instance)
 
     def test_reset_network(self):
-        instance_id = self._create_instance()
-        self.compute.run_instance(self.context, instance_id)
-        instance = self.compute_api.get(self.context, instance_id)
+        instance = self._create_fake_instance()
+        self.compute.run_instance(self.context, instance['id'])
+        instance = self.compute_api.get(self.context, instance['uuid'])
         self.compute_api.reset_network(self.context, instance)
 
     def test_lock(self):
