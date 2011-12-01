@@ -33,6 +33,9 @@ flags.DEFINE_string('compute_scheduler_driver',
 flags.DEFINE_string('volume_scheduler_driver',
                     'nova.scheduler.chance.ChanceScheduler',
                     'Driver to use for scheduling volume calls')
+flags.DEFINE_string('network_scheduler_driver',
+                    'nova.scheduler.chance.ChanceScheduler',
+                    'Driver to use for scheduling network calls')
 
 
 # A mapping of methods to topics so we can figure out which driver to use.
@@ -40,7 +43,8 @@ _METHOD_MAP = {'run_instance': 'compute',
                'start_instance': 'compute',
                'prep_resize': 'compute',
                'create_volume': 'volume',
-               'create_volumes': 'volume'}
+               'create_volumes': 'volume',
+               'set_network_host': 'network'}
 
 
 class MultiScheduler(driver.Scheduler):
@@ -55,9 +59,11 @@ class MultiScheduler(driver.Scheduler):
         super(MultiScheduler, self).__init__()
         compute_driver = utils.import_object(FLAGS.compute_scheduler_driver)
         volume_driver = utils.import_object(FLAGS.volume_scheduler_driver)
+        network_driver = utils.import_object(FLAGS.network_scheduler_driver)
 
         self.drivers = {'compute': compute_driver,
-                        'volume': volume_driver}
+                        'volume': volume_driver,
+                        'network': network_driver}
 
     def __getattr__(self, key):
         if not key.startswith('schedule_'):
@@ -70,6 +76,10 @@ class MultiScheduler(driver.Scheduler):
     def set_zone_manager(self, zone_manager):
         for k, v in self.drivers.iteritems():
             v.set_zone_manager(zone_manager)
+
+    def set_host_manager(self, host_manager):
+        for k, v in self.drivers.iteritems():
+            v.set_host_manager(host_manager)
 
     def schedule(self, context, topic, method, *_args, **_kwargs):
         return self.drivers[topic].schedule(context, topic,

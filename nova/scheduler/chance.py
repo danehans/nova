@@ -44,8 +44,7 @@ class ChanceScheduler(driver.Scheduler):
     def _schedule(self, context, topic, request_spec, **kwargs):
         """Picks a host that is up at random."""
 
-        elevated = context.elevated()
-        hosts = self.hosts_up(elevated, topic)
+        hosts = self.hosts_up(context, topic)
         if not hosts:
             msg = _("Is the appropriate service running?")
             raise exception.NoValidHost(reason=msg)
@@ -60,7 +59,8 @@ class ChanceScheduler(driver.Scheduler):
     def schedule(self, context, topic, method, *_args, **kwargs):
         """Picks a host that is up at random."""
 
-        host = self._schedule(context, topic, None, **kwargs)
+        elevated = context.elevated()
+        host = self._schedule(elevated, topic, None, **kwargs)
         driver.cast_to_host(context, topic, host, method, **kwargs)
 
     def schedule_run_instance(self, context, request_spec, *_args, **kwargs):
@@ -69,8 +69,8 @@ class ChanceScheduler(driver.Scheduler):
         num_instances = request_spec.get('num_instances', 1)
         instances = []
         for num in xrange(num_instances):
-            host = self._schedule(context, 'compute', request_spec, **kwargs)
-            instance = self.create_instance_db_entry(elevated, request_spec)
+            host = self._schedule(elevated, 'compute', request_spec, **kwargs)
+            instance = self.create_instance_db_entry(context, request_spec)
             driver.cast_to_compute_host(context, host,
                     'run_instance', instance_id=instance['id'], **kwargs)
             instances.append(driver.encode_instance(instance))
@@ -80,4 +80,4 @@ class ChanceScheduler(driver.Scheduler):
     def schedule_prep_resize(self, context, request_spec, *args, **kwargs):
         """Select a target for resize."""
         host = self._schedule(context, 'compute', request_spec, **kwargs)
-        driver.cast_to_host(context, 'compute', host, 'prep_resize', **kwargs)
+        driver.cast_to_compute_host(context, host, 'prep_resize', **kwargs)

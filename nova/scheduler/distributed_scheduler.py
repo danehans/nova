@@ -149,8 +149,8 @@ class DistributedScheduler(driver.Scheduler):
         host = hosts.pop(0)
 
         # Forward off to the host
-        driver.cast_to_host(context, 'compute', host.host, 'prep_resize',
-                            **kwargs)
+        driver.cast_to_compute_host(context, host.host, 'prep_resize',
+                **kwargs)
 
     def select(self, context, request_spec, *args, **kwargs):
         """Select returns a list of weights and zone/host information
@@ -306,8 +306,8 @@ class DistributedScheduler(driver.Scheduler):
         # selections can adjust accordingly.
 
         # unfiltered_hosts_dict is {host : ZoneManager.HostInfo()}
-        unfiltered_hosts_dict = self.zone_manager.get_all_host_data(elevated)
-        unfiltered_hosts = unfiltered_hosts_dict.items()
+        unfilt_hosts_dict = self.host_manager.get_all_host_states(elevated)
+        unfiltered_hosts = unfilt_hosts_dict.items()
 
         num_instances = request_spec.get('num_instances', 1)
         selected_hosts = []
