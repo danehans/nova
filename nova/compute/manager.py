@@ -94,28 +94,31 @@ def publisher_id(host=None):
     return notifier.publisher_id("compute", host)
 
 
-def checks_instance_lock_uuid(function):
-    """Decorator to prevent action against locked instances for non-admins."""
-    # TODO(ironcamel): Once the instance_id -> instance_uuid switch is
-    # complete, rename this function to checks_instance_lock and delete the
-    # existing checks_instance_lock. And also inline _decorated_function().
-    @functools.wraps(function)
-    def decorated_function(self, context, instance_uuid, *args, **kwargs):
-        result = self._decorated_function(context, instance_uuid, function,
-                                          *args, **kwargs)
-        if result == False:
-            return False
-    return decorated_function
-
-
 def checks_instance_lock(function):
     """Decorator to prevent action against locked instances for non-admins."""
     @functools.wraps(function)
-    def decorated_function(self, context, instance_id, *args, **kwargs):
-        result = self._decorated_function(context, instance_id, function,
-                                          *args, **kwargs)
-        if result == False:
+    def decorated_function(self, context, instance_uuid, *args, **kwargs):
+        LOG.info(_("check_instance_lock: decorating: |%s|"), function,
+                 context=context)
+        LOG.info(_("check_instance_lock: arguments: |%(self)s| |%(context)s|"
+                " |%(instance_uuid)s|") % locals(), context=context)
+        locked = self.get_lock(context, instance_uuid)
+        admin = context.is_admin
+        LOG.info(_("check_instance_lock: locked: |%s|"), locked,
+                 context=context)
+        LOG.info(_("check_instance_lock: admin: |%s|"), admin,
+                 context=context)
+
+        # if admin or unlocked call function otherwise log error
+        if admin or not locked:
+            LOG.info(_("check_instance_lock: executing: |%s|"), function,
+                     context=context)
+            function(self, context, instance_uuid, *args, **kwargs)
+        else:
+            LOG.error(_("check_instance_lock: not executing |%s|"),
+                      function, context=context)
             return False
+
     return decorated_function
 
 
@@ -151,9 +154,6 @@ class ComputeManager(manager.SchedulerDependentManager):
 
     def _instance_update(self, context, instance_id, **kwargs):
         """Update an instance in the database using kwargs as value."""
-        if utils.is_uuid_like(instance_id):
-            instance = self.db.instance_get_by_uuid(context, instance_id)
-            instance_id = instance['id']
         return self.db.instance_update(context, instance_id, kwargs)
 
     def init_host(self):
@@ -194,29 +194,6 @@ class ComputeManager(manager.SchedulerDependentManager):
             return self.driver.get_info(instance['name'])["state"]
         except exception.NotFound:
             return power_state.FAILED
-
-    def _decorated_function(self, context, instance_id, function,
-                            *args, **kwargs):
-        LOG.info(_("check_instance_lock: decorating: |%s|"), function,
-                 context=context)
-        LOG.info(_("check_instance_lock: arguments: |%(self)s| |%(context)s|"
-                " |%(instance_id)s|") % locals(), context=context)
-        locked = self.get_lock(context, instance_id)
-        admin = context.is_admin
-        LOG.info(_("check_instance_lock: locked: |%s|"), locked,
-                 context=context)
-        LOG.info(_("check_instance_lock: admin: |%s|"), admin,
-                 context=context)
-
-        # if admin or unlocked call function otherwise log error
-        if admin or not locked:
-            LOG.info(_("check_instance_lock: executing: |%s|"), function,
-                     context=context)
-            function(self, context, instance_id, *args, **kwargs)
-        else:
-            LOG.error(_("check_instance_lock: not executing |%s|"),
-                      function, context=context)
-            return False
 
     def get_console_topic(self, context, **kwargs):
         """Retrieves the console host for a project on this host.
@@ -305,17 +282,6 @@ class ComputeManager(manager.SchedulerDependentManager):
                     context, bdm['id'], {'volume_id': vol['id']})
                 bdm['volume_id'] = vol['id']
 
-            if not ((bdm['snapshot_id'] is None) or
-                    (bdm['volume_id'] is not None)):
-                LOG.error(_('corrupted state of block device mapping '
-                            'id: %(id)s snapshot: %(snapshot_id)s '
-                            'volume: %(volume_id)s') %
-                          {'id': bdm['id'],
-                           'snapshot_id': bdm['snapshot'],
-                           'volume_id': bdm['volume_id']})
-                raise exception.ApiError(_('broken block device mapping %d') %
-                                         bdm['id'])
-
             if bdm['volume_id'] is not None:
                 volume_api.check_attach(context,
                                         volume_id=bdm['volume_id'])
@@ -331,182 +297,176 @@ class ComputeManager(manager.SchedulerDependentManager):
 
         return (swap, ephemerals, block_device_mapping)
 
-    def _run_instance(self, context, instance_uuid, **kwargs):
+    def _run_instance(self, context, instance_uuid,
+                      requested_networks=None,
+                      injected_files=[],
+                      admin_pass=None,
+                      **kwargs):
         """Launch a new instance with specified options."""
-        def _check_image_size(image_meta):
-            """Ensure image is smaller than the maximum size allowed by the
-            instance_type.
-
-            The image stored in Glance is potentially compressed, so we use two
-            checks to ensure that the size isn't exceeded:
-
-                1) This one - checks compressed size, this a quick check to
-                   eliminate any images which are obviously too large
-
-                2) Check uncompressed size in nova.virt.xenapi.vm_utils. This
-                   is a slower check since it requires uncompressing the entire
-                   image, but is accurate because it reflects the image's
-                   actual size.
-            """
-
-            try:
-                size_bytes = image_meta['size']
-            except KeyError:
-                # Size is not a required field in the image service (yet), so
-                # we are unable to rely on it being there even though it's in
-                # glance.
-
-                # TODO(jk0): Should size be required in the image service?
-                return
-
-            instance_type_id = instance['instance_type_id']
-            instance_type = instance_types.get_instance_type(instance_type_id)
-            allowed_size_gb = instance_type['local_gb']
-
-            # NOTE(jk0): Since libvirt uses local_gb as a secondary drive, we
-            # need to handle potential situations where local_gb is 0. This is
-            # the default for m1.tiny.
-            if allowed_size_gb == 0:
-                return
-
-            allowed_size_bytes = allowed_size_gb * 1024 * 1024 * 1024
-
-            image_id = image_meta['id']
-            LOG.debug(_("image_id=%(image_id)s, image_size_bytes="
-                        "%(size_bytes)d, allowed_size_bytes="
-                        "%(allowed_size_bytes)d") % locals())
-
-            if size_bytes > allowed_size_bytes:
-                LOG.info(_("Image '%(image_id)s' size %(size_bytes)d exceeded"
-                           " instance_type allowed size "
-                           "%(allowed_size_bytes)d")
-                           % locals())
-                raise exception.ImageTooLarge()
-
-        def _make_network_info():
-            if FLAGS.stub_network:
-                # TODO(tr3buchet) not really sure how this should be handled.
-                # virt requires network_info to be passed in but stub_network
-                # is enabled. Setting to [] for now will cause virt to skip
-                # all vif creation and network injection, maybe this is correct
-                network_info = []
-            else:
-                # NOTE(vish): This could be a cast because we don't do
-                # anything with the address currently, but I'm leaving it as a
-                # call to ensure that network setup completes.  We will
-                # eventually also need to save the address here.
-                network_info = self.network_api.allocate_for_instance(context,
-                                    instance, vpn=is_vpn,
-                                    requested_networks=requested_networks)
-                LOG.debug(_("instance network_info: |%s|"), network_info)
-            return network_info
-
-        def _make_block_device_info():
-            (swap, ephemerals,
-             block_device_mapping) = self._setup_block_device_mapping(
-                context, instance)
-            block_device_info = {
-                'root_device_name': instance['root_device_name'],
-                'swap': swap,
-                'ephemerals': ephemerals,
-                'block_device_mapping': block_device_mapping}
-            return block_device_info
-
-        def _deallocate_network():
-            if not FLAGS.stub_network:
-                LOG.debug(_("deallocating network for instance: %s"),
-                          instance['id'])
-                self.network_api.deallocate_for_instance(context,
-                                    instance)
-
-        def _cleanup():
-            with utils.save_and_reraise_exception():
-                self._instance_update(context,
-                                      instance_id,
-                                      vm_state=vm_states.ERROR)
-                if network_info is not None:
-                    _deallocate_network()
-
-        def _error_message(instance_uuid, message):
-            return _("Instance '%(instance_uuid)s' "
-                     "failed %(message)s.") % locals()
-
         context = context.elevated()
-        if utils.is_uuid_like(instance_uuid):
+        try:
             instance = self.db.instance_get_by_uuid(context, instance_uuid)
-            instance_id = instance['id']
-        else:
-            instance_id = instance_uuid
-            instance = self.db.instance_get(context, instance_id)
-            instance_uuid = instance['uuid']
+            self._check_instance_not_already_created(context, instance)
+            image_meta = self._check_image_size(context, instance)
+            self._start_building(context, instance)
+            network_info = self._allocate_network(context, instance,
+                                                  requested_networks)
+            try:
+                block_device_info = self._prep_block_device(context, instance)
+                instance = self._spawn(context, instance, image_meta,
+                                       network_info, block_device_info,
+                                       injected_files, admin_pass)
+            except:
+                with utils.save_and_reraise_exception():
+                    self._deallocate_network(context, instance)
+            self._notify_about_instance_usage(instance)
+        except exception.InstanceNotFound:
+            LOG.exception(_("Instance %s not found.") % instance_uuid)
+            return  # assuming the instance was already deleted
+        except Exception:
+            with utils.save_and_reraise_exception():
+                self._instance_update(context, instance_uuid,
+                                      vm_state=vm_states.ERROR)
 
-        requested_networks = kwargs.get('requested_networks', None)
-
+    def _check_instance_not_already_created(self, context, instance):
+        """Ensure an instance with the same name is not already present."""
         if instance['name'] in self.driver.list_instances():
             raise exception.Error(_("Instance has already been created"))
 
+    def _check_image_size(self, context, instance):
+        """Ensure image is smaller than the maximum size allowed by the
+        instance_type.
+
+        The image stored in Glance is potentially compressed, so we use two
+        checks to ensure that the size isn't exceeded:
+
+            1) This one - checks compressed size, this a quick check to
+               eliminate any images which are obviously too large
+
+            2) Check uncompressed size in nova.virt.xenapi.vm_utils. This
+               is a slower check since it requires uncompressing the entire
+               image, but is accurate because it reflects the image's
+               actual size.
+        """
         image_meta = _get_image_meta(context, instance['image_ref'])
 
-        _check_image_size(image_meta)
+        try:
+            size_bytes = image_meta['size']
+        except KeyError:
+            # Size is not a required field in the image service (yet), so
+            # we are unable to rely on it being there even though it's in
+            # glance.
 
-        LOG.audit(_("instance %s: starting..."), instance_uuid,
+            # TODO(jk0): Should size be required in the image service?
+            return
+
+        instance_type_id = instance['instance_type_id']
+        instance_type = instance_types.get_instance_type(instance_type_id)
+        allowed_size_gb = instance_type['local_gb']
+
+        # NOTE(jk0): Since libvirt uses local_gb as a secondary drive, we
+        # need to handle potential situations where local_gb is 0. This is
+        # the default for m1.tiny.
+        if allowed_size_gb == 0:
+            return
+
+        allowed_size_bytes = allowed_size_gb * 1024 * 1024 * 1024
+
+        image_id = image_meta['id']
+        LOG.debug(_("image_id=%(image_id)s, image_size_bytes="
+                    "%(size_bytes)d, allowed_size_bytes="
+                    "%(allowed_size_bytes)d") % locals())
+
+        if size_bytes > allowed_size_bytes:
+            LOG.info(_("Image '%(image_id)s' size %(size_bytes)d exceeded"
+                       " instance_type allowed size "
+                       "%(allowed_size_bytes)d")
+                       % locals())
+            raise exception.ImageTooLarge()
+
+        return image_meta
+
+    def _start_building(self, context, instance):
+        """Save the host and launched_on fields and log appropriately."""
+        LOG.audit(_("instance %s: starting..."), instance['uuid'],
                   context=context)
-        updates = {}
-        updates['host'] = self.host
-        updates['launched_on'] = self.host
-        updates['vm_state'] = vm_states.BUILDING
-        updates['task_state'] = task_states.NETWORKING
-        instance = self.db.instance_update(context, instance_id, updates)
-        instance['injected_files'] = kwargs.get('injected_files', [])
-        instance['admin_pass'] = kwargs.get('admin_password', None)
+        self._instance_update(context, instance['uuid'],
+                              host=self.host, launched_on=self.host,
+                              vm_state=vm_states.BUILDING,
+                              task_state=None)
 
+    def _allocate_network(self, context, instance, requested_networks):
+        """Allocate networks for an instance and return the network info"""
+        if FLAGS.stub_network:
+            msg = _("Skipping network allocation for instance %s")
+            LOG.debug(msg % instance['uuid'])
+            return []
+        self._instance_update(context, instance['uuid'],
+                              vm_state=vm_states.BUILDING,
+                              task_state=task_states.NETWORKING)
         is_vpn = instance['image_ref'] == str(FLAGS.vpn_image_id)
         try:
-            network_info = None
-            with utils.logging_error(_error_message(instance_id,
-                                                    "network setup")):
-                network_info = _make_network_info()
+            network_info = self.network_api.allocate_for_instance(
+                                context, instance, vpn=is_vpn,
+                                requested_networks=requested_networks)
+        except:
+            msg = _("Instance %s failed network setup")
+            LOG.exception(msg % instance['uuid'])
+            raise
+        LOG.debug(_("instance network_info: |%s|"), network_info)
+        return network_info
 
-            self._instance_update(context,
-                                  instance_uuid,
-                                  vm_state=vm_states.BUILDING,
-                                  task_state=task_states.BLOCK_DEVICE_MAPPING)
-            with utils.logging_error(_error_message(instance_uuid,
-                                                    "block device setup")):
-                block_device_info = _make_block_device_info()
+    def _prep_block_device(self, context, instance):
+        """Set up the block device for an instance with error logging"""
+        self._instance_update(context, instance['uuid'],
+                              vm_state=vm_states.BUILDING,
+                              task_state=task_states.BLOCK_DEVICE_MAPPING)
+        try:
+            mapping = self._setup_block_device_mapping(context, instance)
+            swap, ephemerals, block_device_mapping = mapping
+        except:
+            msg = _("Instance %s failed block device setup")
+            LOG.exception(msg % instance['uuid'])
+            raise
+        return {'root_device_name': instance['root_device_name'],
+                'swap': swap,
+                'ephemerals': ephemerals,
+                'block_device_mapping': block_device_mapping}
 
-            self._instance_update(context,
-                                  instance_uuid,
-                                  vm_state=vm_states.BUILDING,
-                                  task_state=task_states.SPAWNING)
+    def _spawn(self, context, instance, image_meta, network_info,
+               block_device_info, injected_files, admin_pass):
+        """Spawn an instance with error logging and update its power state"""
+        self._instance_update(context, instance['uuid'],
+                              vm_state=vm_states.BUILDING,
+                              task_state=task_states.SPAWNING)
+        instance['injected_files'] = injected_files
+        instance['admin_pass'] = admin_pass
+        try:
+            self.driver.spawn(context, instance, image_meta,
+                              network_info, block_device_info)
+        except:
+            msg = _("Instance %s failed to spawn")
+            LOG.exception(msg % instance['uuid'])
+            raise
 
-            # TODO(vish) check to make sure the availability zone matches
-            with utils.logging_error(_error_message(instance_uuid,
-                                                    "failed to spawn")):
-                self.driver.spawn(context, instance, image_meta,
-                                  network_info, block_device_info)
+        current_power_state = self._get_power_state(context, instance)
+        return self._instance_update(context, instance['uuid'],
+                                     power_state=current_power_state,
+                                     vm_state=vm_states.ACTIVE,
+                                     task_state=None,
+                                     launched_at=utils.utcnow())
 
-            current_power_state = self._get_power_state(context, instance)
-            instance = self._instance_update(context,
-                                             instance_uuid,
-                                             power_state=current_power_state,
-                                             vm_state=vm_states.ACTIVE,
-                                             task_state=None,
-                                             launched_at=utils.utcnow())
+    def _notify_about_instance_usage(self, instance):
+        usage_info = utils.usage_from_instance(instance)
+        notifier.notify('compute.%s' % self.host,
+                        'compute.instance.create',
+                        notifier.INFO, usage_info)
 
-            usage_info = utils.usage_from_instance(instance)
-            notifier.notify('compute.%s' % self.host,
-                            'compute.instance.create',
-                            notifier.INFO, usage_info)
-
-        except exception.InstanceNotFound:
-            # FIXME(wwolf): We are just ignoring InstanceNotFound
-            # exceptions here in case the instance was immediately
-            # deleted before it actually got created.  This should
-            # be fixed once we have no-db-messaging
-            pass
-        except Exception:
-            _cleanup()
+    def _deallocate_network(self, context, instance):
+        if not FLAGS.stub_network:
+            msg = _("deallocating network for instance: %s")
+            LOG.debug(msg % instance['uuid'])
+            self.network_api.deallocate_for_instance(context, instance)
 
     def _get_instance_volume_bdms(self, context, instance_id):
         bdms = self.db.block_device_mapping_get_all_by_instance(context,
@@ -526,11 +486,11 @@ class ComputeManager(manager.SchedulerDependentManager):
         return {'block_device_mapping': block_device_mapping}
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
-    def run_instance(self, context, instance_id, **kwargs):
-        self._run_instance(context, instance_id, **kwargs)
+    def run_instance(self, context, instance_uuid, **kwargs):
+        self._run_instance(context, instance_uuid, **kwargs)
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
-    @checks_instance_lock_uuid
+    @checks_instance_lock
     def start_instance(self, context, instance_uuid):
         """Starting an instance on this host."""
         # TODO(yamahata): injected_files isn't supported.
@@ -596,7 +556,7 @@ class ComputeManager(manager.SchedulerDependentManager):
                         notifier.INFO, usage_info)
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
-    @checks_instance_lock_uuid
+    @checks_instance_lock
     def terminate_instance(self, context, instance_uuid):
         """Terminate an instance on this host."""
         elevated = context.elevated()
@@ -605,7 +565,7 @@ class ComputeManager(manager.SchedulerDependentManager):
         self._delete_instance(context, instance)
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
-    @checks_instance_lock_uuid
+    @checks_instance_lock
     def stop_instance(self, context, instance_uuid):
         """Stopping an instance on this host."""
         # FIXME(vish): I've kept the files during stop instance, but
@@ -620,7 +580,7 @@ class ComputeManager(manager.SchedulerDependentManager):
                               task_state=None)
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
-    @checks_instance_lock_uuid
+    @checks_instance_lock
     def power_off_instance(self, context, instance_uuid):
         """Power off an instance on this host."""
         instance = self.db.instance_get_by_uuid(context, instance_uuid)
@@ -632,7 +592,7 @@ class ComputeManager(manager.SchedulerDependentManager):
                               task_state=None)
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
-    @checks_instance_lock_uuid
+    @checks_instance_lock
     def power_on_instance(self, context, instance_uuid):
         """Power on an instance on this host."""
         instance = self.db.instance_get_by_uuid(context, instance_uuid)
@@ -644,7 +604,7 @@ class ComputeManager(manager.SchedulerDependentManager):
                               task_state=None)
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
-    @checks_instance_lock_uuid
+    @checks_instance_lock
     def rebuild_instance(self, context, instance_uuid, **kwargs):
         """Destroy and re-make this instance.
 
@@ -709,7 +669,7 @@ class ComputeManager(manager.SchedulerDependentManager):
                             usage_info)
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
-    @checks_instance_lock_uuid
+    @checks_instance_lock
     def reboot_instance(self, context, instance_uuid, reboot_type="SOFT"):
         """Reboot an instance on this host."""
         LOG.audit(_("Rebooting instance %s"), instance_uuid, context=context)
@@ -840,7 +800,7 @@ class ComputeManager(manager.SchedulerDependentManager):
                 image_service.delete(context, image_id)
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
-    @checks_instance_lock_uuid
+    @checks_instance_lock
     def set_admin_password(self, context, instance_uuid, new_pass=None):
         """Set the root/admin password for an instance on this host.
 
@@ -898,7 +858,7 @@ class ComputeManager(manager.SchedulerDependentManager):
                     continue
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
-    @checks_instance_lock_uuid
+    @checks_instance_lock
     def inject_file(self, context, instance_uuid, path, file_contents):
         """Write a file to the specified path in an instance on this host."""
         context = context.elevated()
@@ -915,7 +875,7 @@ class ComputeManager(manager.SchedulerDependentManager):
         self.driver.inject_file(instance_ref, path, file_contents)
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
-    @checks_instance_lock_uuid
+    @checks_instance_lock
     def agent_update(self, context, instance_uuid, url, md5hash):
         """Update agent running on an instance on this host."""
         context = context.elevated()
@@ -932,7 +892,7 @@ class ComputeManager(manager.SchedulerDependentManager):
         self.driver.agent_update(instance_ref, url, md5hash)
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
-    @checks_instance_lock_uuid
+    @checks_instance_lock
     def rescue_instance(self, context, instance_uuid, **kwargs):
         """
         Rescue an instance on this host.
@@ -958,7 +918,7 @@ class ComputeManager(manager.SchedulerDependentManager):
                               power_state=current_power_state)
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
-    @checks_instance_lock_uuid
+    @checks_instance_lock
     def unrescue_instance(self, context, instance_uuid):
         """Rescue an instance on this host."""
         LOG.audit(_('instance %s: unrescuing'), instance_uuid, context=context)
@@ -978,7 +938,7 @@ class ComputeManager(manager.SchedulerDependentManager):
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
     @checks_instance_lock
-    def confirm_resize(self, context, instance_id, migration_id):
+    def confirm_resize(self, context, instance_uuid, migration_id):
         """Destroys the source instance."""
         migration_ref = self.db.migration_get(context, migration_id)
         instance_ref = self.db.instance_get_by_uuid(context,
@@ -996,7 +956,7 @@ class ComputeManager(manager.SchedulerDependentManager):
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
     @checks_instance_lock
-    def revert_resize(self, context, instance_id, migration_id):
+    def revert_resize(self, context, instance_uuid, migration_id):
         """Destroys the new instance on the destination machine.
 
         Reverts the model changes, and powers on the old instance on the
@@ -1013,13 +973,13 @@ class ComputeManager(manager.SchedulerDependentManager):
                 instance_ref['host'])
         rpc.cast(context, topic,
                 {'method': 'finish_revert_resize',
-                 'args': {'instance_id': instance_ref['uuid'],
+                 'args': {'instance_uuid': instance_ref['uuid'],
                           'migration_id': migration_ref['id']},
                 })
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
     @checks_instance_lock
-    def finish_revert_resize(self, context, instance_id, migration_id):
+    def finish_revert_resize(self, context, instance_uuid, migration_id):
         """Finishes the second half of reverting a resize.
 
         Power back on the source instance and revert the resized attributes
@@ -1053,7 +1013,7 @@ class ComputeManager(manager.SchedulerDependentManager):
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
     @checks_instance_lock
-    def prep_resize(self, context, instance_id, instance_type_id):
+    def prep_resize(self, context, instance_uuid, instance_type_id):
         """Initiates the process of moving a running instance to another host.
 
         Possibly changes the RAM and disk size in the process.
@@ -1061,15 +1021,12 @@ class ComputeManager(manager.SchedulerDependentManager):
         """
         context = context.elevated()
 
-        # Because of checks_instance_lock, this must currently be called
-        # instance_id. However, the compute API is always passing the UUID
-        # of the instance down
-        instance_ref = self.db.instance_get_by_uuid(context, instance_id)
+        instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
 
         same_host = instance_ref['host'] == FLAGS.host
         if same_host and not FLAGS.allow_resize_to_same_host:
             self._instance_update(context,
-                                  instance_id,
+                                  instance_uuid,
                                   vm_state=vm_states.ERROR)
             msg = _('Migration error: destination same as source!')
             raise exception.Error(msg)
@@ -1094,7 +1051,7 @@ class ComputeManager(manager.SchedulerDependentManager):
                 instance_ref['host'])
         rpc.cast(context, topic,
                 {'method': 'resize_instance',
-                 'args': {'instance_id': instance_ref['uuid'],
+                 'args': {'instance_uuid': instance_ref['uuid'],
                           'migration_id': migration_ref['id']}})
 
         usage_info = utils.usage_from_instance(instance_ref,
@@ -1107,7 +1064,7 @@ class ComputeManager(manager.SchedulerDependentManager):
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
     @checks_instance_lock
-    def resize_instance(self, context, instance_id, migration_id):
+    def resize_instance(self, context, instance_uuid, migration_id):
         """Starts the migration of a running instance to another host."""
         migration_ref = self.db.migration_get(context, migration_id)
         instance_ref = self.db.instance_get_by_uuid(context,
@@ -1123,7 +1080,7 @@ class ComputeManager(manager.SchedulerDependentManager):
         except exception.MigrationError, error:
             LOG.error(_('%s. Setting instance vm_state to ERROR') % (error,))
             self._instance_update(context,
-                                  instance_id,
+                                  instance_uuid,
                                   vm_state=vm_states.ERROR)
             return
 
@@ -1138,13 +1095,13 @@ class ComputeManager(manager.SchedulerDependentManager):
                                       migration_ref['dest_compute'])
         params = {'migration_id': migration_id,
                   'disk_info': disk_info,
-                  'instance_id': instance_ref['uuid']}
+                  'instance_uuid': instance_ref['uuid']}
         rpc.cast(context, topic, {'method': 'finish_resize',
                                   'args': params})
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
     @checks_instance_lock
-    def finish_resize(self, context, instance_id, migration_id, disk_info):
+    def finish_resize(self, context, instance_uuid, migration_id, disk_info):
         """Completes the migration process.
 
         Sets up the newly transferred disk and turns on the instance at its
@@ -1181,7 +1138,7 @@ class ComputeManager(manager.SchedulerDependentManager):
                                      resize_instance)
 
         self._instance_update(context,
-                              instance_id,
+                              instance_uuid,
                               vm_state=vm_states.ACTIVE,
                               host=migration_ref['dest_compute'],
                               task_state=task_states.RESIZE_VERIFY)
@@ -1190,7 +1147,7 @@ class ComputeManager(manager.SchedulerDependentManager):
                 {'status': 'finished', })
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
-    @checks_instance_lock_uuid
+    @checks_instance_lock
     def add_fixed_ip_to_instance(self, context, instance_uuid, network_id):
         """Calls network_api to add new fixed_ip to instance
         then injects the new network info and resets instance networking.
@@ -1209,7 +1166,7 @@ class ComputeManager(manager.SchedulerDependentManager):
         self.reset_network(context, instance_ref['uuid'])
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
-    @checks_instance_lock_uuid
+    @checks_instance_lock
     def remove_fixed_ip_from_instance(self, context, instance_uuid, address):
         """Calls network_api to remove existing fixed_ip from instance
         by injecting the altered network info and resetting
@@ -1228,7 +1185,7 @@ class ComputeManager(manager.SchedulerDependentManager):
         self.reset_network(context, instance_ref['uuid'])
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
-    @checks_instance_lock_uuid
+    @checks_instance_lock
     def pause_instance(self, context, instance_uuid):
         """Pause an instance on this host."""
         LOG.audit(_('instance %s: pausing'), instance_uuid, context=context)
@@ -1245,7 +1202,7 @@ class ComputeManager(manager.SchedulerDependentManager):
                               task_state=None)
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
-    @checks_instance_lock_uuid
+    @checks_instance_lock
     def unpause_instance(self, context, instance_uuid):
         """Unpause a paused instance on this host."""
         LOG.audit(_('instance %s: unpausing'), instance_uuid, context=context)
@@ -1331,19 +1288,15 @@ class ComputeManager(manager.SchedulerDependentManager):
         self.db.instance_update(context, instance_uuid, {'locked': False})
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
-    def get_lock(self, context, instance_id):
+    def get_lock(self, context, instance_uuid):
         """Return the boolean state of the given instance's lock."""
         context = context.elevated()
-        LOG.debug(_('instance %s: getting locked state'), instance_id,
+        LOG.debug(_('instance %s: getting locked state'), instance_uuid,
                   context=context)
-        if utils.is_uuid_like(instance_id):
-            uuid = instance_id
-            instance_ref = self.db.instance_get_by_uuid(context, uuid)
-        else:
-            instance_ref = self.db.instance_get(context, instance_id)
+        instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
         return instance_ref['locked']
 
-    @checks_instance_lock_uuid
+    @checks_instance_lock
     def reset_network(self, context, instance_uuid):
         """Reset networking on the given instance."""
         instance = self.db.instance_get_by_uuid(context, instance_uuid)
@@ -1351,7 +1304,7 @@ class ComputeManager(manager.SchedulerDependentManager):
                                                    context=context)
         self.driver.reset_network(instance)
 
-    @checks_instance_lock_uuid
+    @checks_instance_lock
     def inject_network_info(self, context, instance_uuid):
         """Inject network info for the given instance."""
         LOG.debug(_('instance %s: inject network info'), instance_uuid,
@@ -1405,7 +1358,7 @@ class ComputeManager(manager.SchedulerDependentManager):
         volume_api.attach(context, volume_id, instance_id, mountpoint)
         return connection_info
 
-    @checks_instance_lock_uuid
+    @checks_instance_lock
     def attach_volume(self, context, instance_uuid, volume_id, mountpoint):
         """Attach a volume to an instance."""
         context = context.elevated()
@@ -1448,7 +1401,7 @@ class ComputeManager(manager.SchedulerDependentManager):
         return True
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
-    @checks_instance_lock_uuid
+    @checks_instance_lock
     def _detach_volume(self, context, instance_uuid, volume_id,
                        destroy_bdm=False, mark_detached=True,
                        force_detach=False):

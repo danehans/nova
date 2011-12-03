@@ -235,7 +235,8 @@ class LibvirtConnection(driver.ComputeDriver):
             return True
         except libvirt.libvirtError as e:
             if e.get_error_code() == libvirt.VIR_ERR_SYSTEM_ERROR and \
-               e.get_error_domain() == libvirt.VIR_FROM_REMOTE:
+               e.get_error_domain() in (libvirt.VIR_FROM_REMOTE,
+                       libvirt.VIR_FROM_RPC):
                 LOG.debug(_('Connection to libvirt broke'))
                 return False
             raise
@@ -1322,7 +1323,7 @@ class LibvirtConnection(driver.ComputeDriver):
 
         """
 
-        if sys.platform.upper() != 'LINUX2':
+        if sys.platform.upper() not in ['LINUX2', 'LINUX3']:
             return 0
 
         meminfo = open('/proc/meminfo').read().split()
@@ -1363,7 +1364,7 @@ class LibvirtConnection(driver.ComputeDriver):
 
         """
 
-        if sys.platform.upper() != 'LINUX2':
+        if sys.platform.upper() not in ['LINUX2', 'LINUX3']:
             return 0
 
         m = open('/proc/meminfo').read().split()
