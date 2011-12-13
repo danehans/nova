@@ -340,6 +340,28 @@ class InstanceTypes(BASE, NovaBase):
                                    ' == InstanceTypes.id)')
 
 
+class Capacity(BASE, NovaBase):
+    """Represents the current state of the ComputeNode. For use
+    when selecting a Host during scheduling."""
+
+    __tablename__ = 'capacity'
+    __table_args__ = {'mysql_engine': 'InnoDB'}
+
+    id = Column(Integer, primary_key=True)
+
+    host = Column(String(255))
+
+    # Free Ram, amount of activity (resize, migration, boot, etc) and
+    # the number of running VM's are a good starting point for what's
+    # important when making scheduling decisions.
+    #
+    # NOTE(sandy): We'll need to make this extensible for other schedulers.
+    free_ram_mb = Column(Integer, default=0, nullable=False)
+    free_disk_gb = Column(Integer, default=0, nullable=False)
+    current_workload = Column(Integer, default=0, nullable=False)
+    running_vms = Column(Integer, default=0, nullable=False)
+
+
 class Volume(BASE, NovaBase):
     """Represents a block storage device that can be attached to a vm."""
     __tablename__ = 'volumes'

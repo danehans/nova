@@ -368,6 +368,8 @@ def usage_from_instance(instance_ref, **kw):
           instance_id=instance_ref['uuid'],
           instance_type=instance_ref['instance_type']['name'],
           instance_type_id=instance_ref['instance_type_id'],
+          memory_mb=instance_ref['memory_mb'],
+          disk_gb=instance_ref['local_gb'],
           display_name=instance_ref['display_name'],
           created_at=str(instance_ref['created_at']),
           launched_at=str(instance_ref['launched_at']) \
@@ -626,7 +628,9 @@ def to_primitive(value, convert_instances=False, level=0):
              inspect.isabstract]
     for test in nasty:
         if test(value):
-            return unicode(value)
+            if '__str__' in dir(value):
+                return str(value)
+            return None
 
     if level > 3:
         return '?'

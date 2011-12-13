@@ -152,7 +152,8 @@ class HostInfo(object):
     ad-hoc data structures previously used and lock down
     access."""
 
-    def __init__(self, host, caps=None, free_ram_mb=0, free_disk_gb=0):
+    def __init__(self, host, caps=None, free_ram_mb=0, free_disk_gb=0,
+                 running_vms=0, work_in_progress=0):
         self.host = host
 
         # Read-only capability dicts
@@ -169,15 +170,20 @@ class HostInfo(object):
         # These will change as resources are virtually "consumed".
         self.free_ram_mb = free_ram_mb
         self.free_disk_gb = free_disk_gb
+        self.running_vms = running_vms
+        self.work_in_progress = work_in_progress
 
     def consume_resources(self, disk_gb, ram_mb):
         """Consume some of the mutable resources."""
         self.free_disk_gb -= disk_gb
         self.free_ram_mb -= ram_mb
+        self.running_vms -= 1
+        self.work_in_progress += 1
 
     def __repr__(self):
-        return "%s ram:%s disk:%s" % \
-                    (self.host, self.free_ram_mb, self.free_disk_gb)
+        return "%s ram:%s disk:%s vms=%d wip=%d" % \
+                    (self.host, self.free_ram_mb, self.free_disk_gb,
+                     self.running_vms, self.work_in_progress)
 
 
 class ZoneManager(object):
@@ -204,60 +210,35 @@ class ZoneManager(object):
                 ret.append({"service": svc, "host_name": host})
         return ret
 
-    def _compute_node_get_all(self, context):
+    def _get_suitable_hosts(self, context, minimum_ram_mb, minimum_disk_gb):
         """Broken out for testing."""
-        return db.compute_node_get_all(context)
+        return db.capacity_find(context, minimum_ram_mb, minimum_disk_gb)
 
-    def _instance_get_all(self, context):
-        """Broken out for testing."""
-        return db.instance_get_all(context)
-
-    def get_all_host_data(self, context):
+    def get_all_host_data(self, context, minimum_ram_mb=0, minimum_disk_gb=0):
         """Returns a dict of all the hosts the ZoneManager
         knows about. Also, each of the consumable resources in HostInfo
         are pre-populated and adjusted based on data in the db.
 
         For example:
         {'192.168.1.100': HostInfo(), ...}
-
-        Note: this can be very slow with a lot of instances.
-        InstanceType table isn't required since a copy is stored
-        with the instance (in case the InstanceType changed since the
-        instance was created)."""
+        """
 
         # Make a compute node dict with the bare essential metrics.
-        compute_nodes = self._compute_node_get_all(context)
+        capacities = self._get_suitable_hosts(context, minimum_ram_mb,
+                                              minimum_disk_gb)
         host_info_map = {}
-        for compute in compute_nodes:
-            all_disk = compute['local_gb']
-            all_ram = compute['memory_mb']
-            service = compute['service']
-            if not service:
-                logging.warn(_("No service for compute ID %s") % compute['id'])
-                continue
-
-            host = service['host']
+        for capacity in capacities:
+            free_ram_mb = capacity['free_ram_mb']
+            free_disk_gb = capacity['free_disk_gb']
+            running_vms = capacity['running_vms']
+            work_in_progress = capacity['current_workload']
+            host = capacity['host']
             caps = self.service_states.get(host, None)
-            host_info = HostInfo(host, caps=caps,
-                    free_disk_gb=all_disk, free_ram_mb=all_ram)
-            # Reserve resources for host/dom0
-            host_info.consume_resources(FLAGS.reserved_host_disk_mb * 1024,
-                    FLAGS.reserved_host_memory_mb)
+            host_info = HostInfo(host, caps=caps, free_ram_mb=free_ram_mb,
+                                 free_disk_gb=free_disk_gb,
+                                 running_vms=running_vms,
+                                 work_in_progress=work_in_progress)
             host_info_map[host] = host_info
-
-        # "Consume" resources from the host the instance resides on.
-        instances = self._instance_get_all(context)
-        for instance in instances:
-            host = instance['host']
-            if not host:
-                continue
-            host_info = host_info_map.get(host, None)
-            if not host_info:
-                continue
-            disk = instance['local_gb']
-            ram = instance['memory_mb']
-            host_info.consume_resources(disk, ram)
-
         return host_info_map
 
     def get_zone_capabilities(self, context):

@@ -41,6 +41,9 @@ from sqlalchemy.sql.expression import desc
 from sqlalchemy.sql.expression import literal_column
 
 FLAGS = flags.FLAGS
+flags.DECLARE('reserved_host_disk_mb', 'nova.scheduler.zone_manager')
+flags.DECLARE('reserved_host_memory_mb', 'nova.scheduler.zone_manager')
+
 LOG = logging.getLogger("nova.db.sqlalchemy")
 
 
@@ -366,6 +369,22 @@ def compute_node_get(context, compute_id, session=None):
 
     if not result:
         raise exception.ComputeHostNotFound(host=compute_id)
+
+    return result
+
+
+@require_admin_context
+def compute_node_get_by_service(context, service_id, session=None):
+    if not session:
+        session = get_session()
+
+    result = session.query(models.ComputeNode).\
+                     filter_by(service_id=service_id).\
+                     filter_by(deleted=can_read_deleted(context)).\
+                     first()
+
+    if not result:
+        raise exception.ComputeHostNotFound(host="ServiceID=%s" % service_id)
 
     return result
 
@@ -4040,3 +4059,133 @@ def instance_fault_get_by_instance(context, instance_uuid):
                 filter_by(instance_uuid=instance_uuid).\
                 order_by(desc("created_at")).\
                 first()
+
+
+###############################
+
+
+# Note: these operations use with_lockmode() ... so this will only work
+# reliably with engines that support row-level locking
+# (postgres, mysql+innodb and above).
+
+def capacity_get(context, host):
+    """Get all capacity entries for the given host."""
+    session = get_session()
+    with session.begin():
+        cache = session.query(models.Capacity).\
+                              filter_by(host=host).\
+                              filter_by(deleted=False).\
+                              with_lockmode('update')
+        return cache.first()
+
+
+def capacity_find(context, minimum_ram_mb, minimum_disk_gb):
+    """Get all hosts with at enough ram."""
+    session = get_session()
+    with session.begin():
+        cache = session.query(models.Capacity).\
+                              filter(models.Capacity.free_ram_mb >=\
+                                     minimum_ram_mb).\
+                              filter(models.Capacity.free_disk_gb >=\
+                                     minimum_disk_gb).\
+                              filter_by(deleted=False).\
+                              with_lockmode('update')
+        return cache.first()
+
+
+def capacity_new(context, host, session=None):
+    """Create a new entry for this ComputeNode. Initialize it with
+    acceptable defaults."""
+    services = service_get_all_compute_by_host(context, host)
+    if len(services) == 0:
+        raise exception.NotFound(_("No Compute Service entry for %(host)s" %
+                                 locals()))
+    service = services[0]
+    compute_node = compute_node_get_by_service(context, service.id)
+    instances = instance_get_all_by_host(context, host)
+    vms = len(instances)
+    free_ram_mb = compute_node.memory_mb - FLAGS.reserved_host_memory_mb
+    free_disk_gb = compute_node.local_gb - (FLAGS.reserved_host_disk_mb * 1024)
+
+    work = 0
+    for instance in instances:
+        free_ram_mb -= instance.memory_mb
+        free_disk_gb -= instance.local_gb
+        if instance.vm_state in [vm_states.BUILDING, vm_states.REBUILDING,
+                                 vm_states.MIGRATING, vm_states.RESIZING]:
+            work += 1
+    if not session:
+        session = get_session()
+    # Subtransactions are important so that this record is added
+    # before subsequent changes/updates are applied. Otherwise
+    # the update becomes INSERT INTO vs the required UPDATE x=x+1.
+    with session.begin(subtransactions=True):
+        cache = models.Capacity(host=host,
+                                free_ram_mb=free_ram_mb,
+                                free_disk_gb=free_disk_gb,
+                                current_workload=work,
+                                running_vms=vms)
+        session.add(cache)
+    return cache
+
+
+def capacity_update(context, host, free_ram_mb_delta=0,
+                          free_disk_gb_delta=0, work_delta=0, vm_delta=0):
+    """Update a specific Capacity entry by a series of deltas.
+    Do this as a single atomic action and lock the row for the
+    duration of the operation. Will create a new record if none exists, but
+    since this is an incremental update the value may not be correct (since
+    we have to assume the initial value).
+    """
+    session = get_session()
+    cache = None
+    with session.begin(subtransactions=True):
+        cache = session.query(models.Capacity).\
+                              filter_by(host=host).\
+                              filter_by(deleted=False).\
+                              with_lockmode('update').\
+                              first()
+        if cache is None:
+            cache = capacity_new(context, host, session=session)
+
+        # This table thingy is how we get atomic UPDATE x = x + 1
+        # semantics.
+        table = models.Capacity.__table__
+        if free_ram_mb_delta != 0:
+            cache.free_ram_mb = table.c.free_ram_mb + free_ram_mb_delta
+        if free_disk_gb_delta != 0:
+            cache.free_disk_gb = table.c.free_disk_gb + free_disk_gb_delta
+        if work_delta != 0:
+            cache.current_workload = table.c.current_workload + work_delta
+        if vm_delta != 0:
+            cache.running_vms = table.c.running_vms + vm_delta
+    return cache
+
+
+def capacity_set(context, host, free_ram_mb=None, free_disk_gb=None,
+                 work=None, vms=None):
+    """Like capacity_update() modify a specific host
+    entry. But this function will set the metrics absolutely
+    (vs. a delta update).
+    """
+    session = get_session()
+    cache = None
+    with session.begin(subtransactions=True):
+        cache = session.query(models.Capacity).\
+                              filter_by(host=host).\
+                              filter_by(deleted=False).\
+                              with_lockmode('update').\
+                              first()
+        if cache is None:
+            cache = capacity_new(context, host, session=session)
+
+        if free_ram_mb != None:
+            cache.free_ram_mb = free_ram_mb
+        if free_disk_gb != None:
+            cache.free_disk_gb = free_disk_gb
+        if work != None:
+            cache.current_workload = work
+        if vms != None:
+            cache.running_vms = vms
+
+    return cache

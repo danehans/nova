@@ -425,9 +425,12 @@ class ToPrimitiveTestCase(test.TestCase):
         x = [datetime, foo, dir]
         ret = utils.to_primitive(x)
         self.assertEquals(len(ret), 3)
-        self.assertTrue(ret[0].startswith(u"<module 'datetime' from "))
-        self.assertTrue(ret[1].startswith(u'<function foo at 0x'))
-        self.assertEquals(ret[2], u'<built-in function dir>')
+        # datetime now have to be converted to None since
+        # pymox 0.5.3 Mock objects can't deal with unicode()/str()
+        # conversions.
+        self.assertEquals(ret[0], None)
+        self.assertTrue(ret[1].startswith('<function foo at 0x'))
+        self.assertEquals(ret[2], '<built-in function dir>')
 
 
 class MonkeyPatchTestCase(test.TestCase):

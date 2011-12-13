@@ -140,20 +140,6 @@ class HostFilterTestCase(test.TestCase):
         self.assertEquals('host3', just_hosts[1])
         self.assertEquals('host2', just_hosts[0])
 
-    def test_instance_type_filter_reserved_memory(self):
-        self.flags(reserved_host_memory_mb=2048)
-        hf = nova.scheduler.filters.InstanceTypeFilter()
-        # filter all hosts that can support 30 ram and 300 disk after
-        # reserving 2048 ram
-        cooked = hf.instance_type_to_filter(self.instance_type)
-        all_hosts = self._get_all_hosts()
-        hosts = hf.filter_hosts(all_hosts, cooked, {})
-        self.assertEquals(2, len(hosts))
-        just_hosts = [host for host, hostinfo in hosts]
-        just_hosts.sort()
-        self.assertEquals('host4', just_hosts[1])
-        self.assertEquals('host3', just_hosts[0])
-
     def test_instance_type_filter_extra_specs(self):
         hf = nova.scheduler.filters.InstanceTypeFilter()
         # filter all hosts that can support 30 ram and 300 disk
