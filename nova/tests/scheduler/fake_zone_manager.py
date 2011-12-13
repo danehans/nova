@@ -26,10 +26,10 @@ class FakeDistributedScheduler(distributed_scheduler.DistributedScheduler):
 
 
 class FakeZoneManager(zone_manager.ZoneManager):
-    """host1: free_ram_mb=1024-512-512=0, free_disk_gb=1024-512-512=0
-       host2: free_ram_mb=2048-512=1536  free_disk_gb=2048-512=1536
-       host3: free_ram_mb=4096-1024=3072  free_disk_gb=4096-1024=3072
-       host4: free_ram_mb=8192  free_disk_gb=8192"""
+    """host1: free_ram_mb=1024 free_disk_gb=1024
+       host2: free_ram_mb=2048 free_disk_gb=2048
+       host3: free_ram_mb=4096 free_disk_gb=4096
+       host4: free_ram_mb=8192 free_disk_gb=8192"""
 
     def __init__(self):
         self.service_states = {
@@ -55,18 +55,14 @@ class FakeZoneManager(zone_manager.ZoneManager):
             ('host4', dict(free_disk_gb=8192, free_ram_mb=8192)),
         ]
 
-    def _compute_node_get_all(self, context):
+    def _get_suitable_hosts(self, context, minimum_ram_mb, minimum_disk_gb):
         return [
-            dict(local_gb=1024, memory_mb=1024, service=dict(host='host1')),
-            dict(local_gb=2048, memory_mb=2048, service=dict(host='host2')),
-            dict(local_gb=4096, memory_mb=4096, service=dict(host='host3')),
-            dict(local_gb=8192, memory_mb=8192, service=dict(host='host4')),
-        ]
-
-    def _instance_get_all(self, context):
-        return [
-            dict(local_gb=512, memory_mb=512, host='host1'),
-            dict(local_gb=512, memory_mb=512, host='host1'),
-            dict(local_gb=512, memory_mb=512, host='host2'),
-            dict(local_gb=1024, memory_mb=1024, host='host3'),
+            dict(free_disk_gb=0, free_ram_mb=0, host='host1',
+                 running_vms=0, current_workload=0),
+            dict(free_disk_gb=2048, free_ram_mb=2048, host='host2',
+                 running_vms=1, current_workload=1),
+            dict(free_disk_gb=4096, free_ram_mb=4096, host='host3',
+                 running_vms=2, current_workload=2),
+            dict(free_disk_gb=8192, free_ram_mb=8192, host='host4',
+                 running_vms=3, current_workload=4),
         ]

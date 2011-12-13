@@ -38,10 +38,7 @@ class FakeEmptyZoneManager(zone_manager.ZoneManager):
     def get_host_list_from_db(self, context):
         return []
 
-    def _compute_node_get_all(*args, **kwargs):
-        return []
-
-    def _instance_get_all(*args, **kwargs):
+    def _get_suitable_hosts(self, context, minimum_ram_mb, minimum_disk_gb):
         return []
 
 

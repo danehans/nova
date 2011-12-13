@@ -1769,3 +1769,30 @@ def instance_fault_create(context, values):
 def instance_fault_get_by_instance(context, instance_uuid):
     """Get first instance fault with the given instance uuid."""
     return IMPL.instance_fault_get_by_instance(context, instance_uuid)
+
+
+###############################
+
+
+def capacity_get(context, host):
+    return IMPL.capacity_get(context, host)
+
+
+def capacity_find(context, minimum_ram_mb, minimum_disk_gb):
+    return IMPL.capacity_find(context, minimum_ram_mb, minimum_disk_gb)
+
+
+def capacity_new(context, host, session=None):
+    return IMPL.capacity_new(context, host, session)
+
+
+def capacity_update(context, host, free_ram_mb_delta=0,
+                          free_disk_gb_delta=0, work_delta=0, vm_delta=0):
+    return IMPL.capacity_update(context, host, free_ram_mb_delta,
+                                free_disk_gb_delta, work_delta, vm_delta)
+
+
+def capacity_set(context, host, free_ram_mb=None, free_disk_gb=None,
+                 work=None, vms=None):
+    return IMPL.capacity_set(context, host, free_ram_mb, free_disk_gb, work,
+                             vms)

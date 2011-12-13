@@ -44,16 +44,16 @@ class LeastCostTestCase(test.TestCase):
         hostinfo_list = self.zone_manager.get_all_host_data(None).items()
 
         # host1: free_ram_mb=0
-        # host2: free_ram_mb=1536
-        # host3: free_ram_mb=3072
+        # host2: free_ram_mb=2048
+        # host3: free_ram_mb=4096
         # host4: free_ram_mb=8192
 
         # [offset, scale]=
-        # [10000, 11536, 13072, 18192]
-        # [0,  768, 1536, 4096]
+        # [10000, 12048, 14096, 18192]
+        # [ 0,  4096,  8192, 16384]
 
         # adjusted [ 1.0 * x + 1.0 * y] =
-        # [10000, 12304, 14608, 22288]
+        # [13072, 16144, 22288, 34576]
 
         # so, host1 should win:
         options = {}
@@ -66,13 +66,13 @@ class LeastCostTestCase(test.TestCase):
         fn_tuples = [(1.0, offset), ]
         hostinfo_list = self.zone_manager.get_all_host_data(None).items()
 
-        # host1: free_ram_mb=0
-        # host2: free_ram_mb=1536
-        # host3: free_ram_mb=3072
+        # host1: free_ram_mb=1024
+        # host2: free_ram_mb=2048
+        # host3: free_ram_mb=4096
         # host4: free_ram_mb=8192
 
         # [offset, ]=
-        # [10000, 11536, 13072, 18192]
+        # [10000, 12048, 14096, 18192]
 
         # so, host1 should win:
         options = {}
