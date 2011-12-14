@@ -43,6 +43,11 @@ def notify(message):
     started = suffix == 'start'
     ended = suffix == 'end'
 
+    if started and event == 'create':
+        # We've already updated this stuff in the scheduler. Don't redo the
+        # work here.
+        return False
+
     work = 1 if started else -1
 
     # Extract the host name from the publisher id ...
@@ -62,7 +67,7 @@ def notify(message):
         free_disk_gb = message.get('payload', {}).get('disk_gb', 0)
 
     if free_ram_mb == 0 and free_disk_gb == 0 and work == 0 and vms == 0:
-        return
+        return False
 
     api.capacity_update(host, context.get_admin_context(),
         free_ram_mb=free_ram_mb, free_disk_gb=free_disk_gb, work=work,

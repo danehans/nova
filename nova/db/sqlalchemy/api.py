@@ -378,9 +378,8 @@ def compute_node_get_by_service(context, service_id, session=None):
     if not session:
         session = get_session()
 
-    result = session.query(models.ComputeNode).\
+    result = model_query(context, models.ComputeNode, session=session).\
                      filter_by(service_id=service_id).\
-                     filter_by(deleted=can_read_deleted(context)).\
                      first()
 
     if not result:

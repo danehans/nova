@@ -171,6 +171,13 @@ class DistributedScheduler(driver.Scheduler):
                                     kwargs):
         """Create the requested resource in this Zone."""
         instance = self.create_instance_db_entry(context, request_spec)
+
+        # TODO(sandy) Anything could fail between here and the time
+        # the host actually starts provisioning the resource. In the
+        # event of failure we need to reclaim these resources.
+        weighted_host.hostinfo.consume_resources(disk_requirement_gb,
+                                                 ram_requirement_mb)
+
         driver.cast_to_compute_host(context, weighted_host.host,
                 'run_instance', instance_uuid=instance['uuid'], **kwargs)
         return driver.encode_instance(instance, local=True)
@@ -305,15 +312,18 @@ class DistributedScheduler(driver.Scheduler):
         # host, we virtually consume resources on it so subsequent
         # selections can adjust accordingly.
 
-        # unfiltered_hosts_dict is {host : ZoneManager.HostInfo()}
-        unfiltered_hosts_dict = self.zone_manager.get_all_host_data(elevated,
-                                         minimum_ram_mb=ram_requirement_mb,
-                                         minimum_disk_gb=disk_requirement_gb)
-        unfiltered_hosts = unfiltered_hosts_dict.items()
-
         num_instances = request_spec.get('num_instances', 1)
         selected_hosts = []
         for num in xrange(num_instances):
+            # We need to get the host_info from the db on each pass
+            # to ensure we have the latest updates from the other
+            # schedulers.
+
+            # unfiltered_hosts_dict is {host : ZoneManager.HostInfo()}
+            unfiltered_hosts = self.zone_manager.get_all_host_data(elevated,
+                                  minimum_ram_mb=ram_requirement_mb,
+                                  minimum_disk_gb=disk_requirement_gb).items()
+
             # Filter local hosts based on requirements ...
             filtered_hosts = self._filter_hosts(topic, request_spec,
                     unfiltered_hosts, options)
@@ -330,11 +340,6 @@ class DistributedScheduler(driver.Scheduler):
                                                 filtered_hosts, options)
             LOG.debug(_("Weighted %(weighted_host)s") % locals())
             selected_hosts.append(weighted_host)
-
-            # Now consume the resources so the filter/weights
-            # will change for the next instance.
-            weighted_host.hostinfo.consume_resources(disk_requirement_gb,
-                                        ram_requirement_mb)
 
         # Next, tack on the host weights from the child zones
         if not request_spec.get('local_zone', False):
