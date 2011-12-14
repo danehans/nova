@@ -112,6 +112,7 @@ def weighted_sum(weighted_fns, host_list, options):
         for idx, col in enumerate(row):
             final_scores[idx] += col
 
+
     # Super-impose the hostinfo into the scores so
     # we don't lose it when we sort.
     final_scores = [(final_scores[idx], host_tuple)

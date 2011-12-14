@@ -13,19 +13,43 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 """
-Fakes For Distributed Scheduler tests.
+Fakes For Scheduler tests.
 """
 
 from nova.scheduler import distributed_scheduler
+from nova.scheduler import host_manager
 from nova.scheduler import zone_manager
 
 
+COMPUTE_NODES = [
+        dict(id=1, local_gb=1024, memory_mb=1024, service=dict(host='host1')),
+        dict(id=2, local_gb=2048, memory_mb=2048, service=dict(host='host2')),
+        dict(id=3, local_gb=4096, memory_mb=4096, service=dict(host='host3')),
+        dict(id=4, local_gb=8192, memory_mb=8192, service=dict(host='host4')),
+        # Broken entry
+        dict(id=5, local_gb=1024, memory_mb=1024, service=None),
+]
+
+INSTANCES = [
+        dict(local_gb=512, memory_mb=512, host='host1'),
+        dict(local_gb=512, memory_mb=512, host='host2'),
+        dict(local_gb=512, memory_mb=512, host='host2'),
+        dict(local_gb=1024, memory_mb=1024, host='host3'),
+        # Broken host
+        dict(local_gb=1024, memory_mb=1024, host=None),
+        # No matching host
+        dict(local_gb=1024, memory_mb=1024, host='host5'),
+]
+
+
 class FakeDistributedScheduler(distributed_scheduler.DistributedScheduler):
-    # No need to stub anything at the moment
-    pass
+    def __init__(self, *args, **kwargs):
+        super(FakeDistributedScheduler, self).__init__(*args, **kwargs)
+        self.zone_manager = zone_manager.ZoneManager()
+        self.host_manager = host_manager.HostManager()
 
 
-class FakeZoneManager(zone_manager.ZoneManager):
+class FakeHostManager(host_manager.HostManager):
     """host1: free_ram_mb=1024-512-512=0, free_disk_gb=1024-512-512=0
        host2: free_ram_mb=2048-512=1536  free_disk_gb=2048-512=1536
        host3: free_ram_mb=4096-1024=3072  free_disk_gb=4096-1024=3072
@@ -56,17 +80,7 @@ class FakeZoneManager(zone_manager.ZoneManager):
         ]
 
     def _compute_node_get_all(self, context):
-        return [
-            dict(local_gb=1024, memory_mb=1024, service=dict(host='host1')),
-            dict(local_gb=2048, memory_mb=2048, service=dict(host='host2')),
-            dict(local_gb=4096, memory_mb=4096, service=dict(host='host3')),
-            dict(local_gb=8192, memory_mb=8192, service=dict(host='host4')),
-        ]
+        return COMPUTE_NODES
 
     def _instance_get_all(self, context):
-        return [
-            dict(local_gb=512, memory_mb=512, host='host1'),
-            dict(local_gb=512, memory_mb=512, host='host1'),
-            dict(local_gb=512, memory_mb=512, host='host2'),
-            dict(local_gb=1024, memory_mb=1024, host='host3'),
-        ]
+        return INSTANCES

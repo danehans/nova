@@ -689,6 +689,10 @@ class ZoneNotFound(NotFound):
     message = _("Zone %(zone_id)s could not be found.")
 
 
+class SchedulerDestHostIncompatibleCPU(Invalid):
+    message = _("Destination host has a different CPU than the source")
+
+
 class SchedulerHostFilterNotFound(NotFound):
     message = _("Scheduler Host Filter %(filter_name)s could not be found.")
 

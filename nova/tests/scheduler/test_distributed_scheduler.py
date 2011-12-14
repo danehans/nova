@@ -27,22 +27,8 @@ from nova import test
 from nova.compute import api as compute_api
 from nova.scheduler import distributed_scheduler
 from nova.scheduler import least_cost
-from nova.scheduler import zone_manager
-from nova.tests.scheduler import fake_zone_manager as ds_fakes
-
-
-class FakeEmptyZoneManager(zone_manager.ZoneManager):
-    def __init__(self):
-        self.service_states = {}
-
-    def get_host_list_from_db(self, context):
-        return []
-
-    def _compute_node_get_all(*args, **kwargs):
-        return []
-
-    def _instance_get_all(*args, **kwargs):
-        return []
+from nova.scheduler import host_manager
+from nova.tests.scheduler import fakes
 
 
 def fake_call_zone_method(context, method, specs, zones):
@@ -94,7 +80,7 @@ class DistributedSchedulerTestCase(test.TestCase):
         properly adjusted based on the scale/offset in the zone
         db entries.
         """
-        sched = ds_fakes.FakeDistributedScheduler()
+        sched = fakes.FakeDistributedScheduler()
         child_results = fake_call_zone_method(None, None, None, None)
         zones = fake_zone_get_all(None)
         weighted_hosts = sched._adjust_child_weights(child_results, zones)
@@ -115,8 +101,7 @@ class DistributedSchedulerTestCase(test.TestCase):
         def _fake_empty_call_zone_method(*args, **kwargs):
             return []
 
-        sched = ds_fakes.FakeDistributedScheduler()
-        sched.zone_manager = FakeEmptyZoneManager()
+        sched = fakes.FakeDistributedScheduler()
         self.stubs.Set(sched, '_call_zone_method',
                        _fake_empty_call_zone_method)
         self.stubs.Set(nova.db, 'zone_get_all', fake_zone_get_all)
@@ -152,7 +137,7 @@ class DistributedSchedulerTestCase(test.TestCase):
             self.child_zone_called = True
             return 2
 
-        sched = ds_fakes.FakeDistributedScheduler()
+        sched = fakes.FakeDistributedScheduler()
         self.stubs.Set(sched, '_schedule', _fake_schedule)
         self.stubs.Set(sched, '_make_weighted_host_from_blob',
                        _fake_make_weighted_host_from_blob)
@@ -187,7 +172,7 @@ class DistributedSchedulerTestCase(test.TestCase):
             self.was_admin = context.is_admin
             return []
 
-        sched = ds_fakes.FakeDistributedScheduler()
+        sched = fakes.FakeDistributedScheduler()
         self.stubs.Set(sched, '_schedule', fake_schedule)
 
         fake_context = context.RequestContext('user', 'project')
@@ -198,13 +183,13 @@ class DistributedSchedulerTestCase(test.TestCase):
 
     def test_schedule_bad_topic(self):
         """Parameter checking."""
-        sched = ds_fakes.FakeDistributedScheduler()
+        sched = fakes.FakeDistributedScheduler()
         self.assertRaises(NotImplementedError, sched._schedule, None, "foo",
                           {})
 
     def test_schedule_no_instance_type(self):
         """Parameter checking."""
-        sched = ds_fakes.FakeDistributedScheduler()
+        sched = fakes.FakeDistributedScheduler()
         self.assertRaises(NotImplementedError, sched._schedule, None,
                           "compute", {})
 
@@ -220,9 +205,10 @@ class DistributedSchedulerTestCase(test.TestCase):
             return least_cost.WeightedHost(self.next_weight, host=host,
                                            hostinfo=hostinfo)
 
-        sched = ds_fakes.FakeDistributedScheduler()
-        fake_context = context.RequestContext('user', 'project')
-        sched.zone_manager = ds_fakes.FakeZoneManager()
+        sched = fakes.FakeDistributedScheduler()
+        fake_context = context.RequestContext('user', 'project',
+                is_admin=True)
+        sched.host_manager = fakes.FakeHostManager()
         self.stubs.Set(sched, '_filter_hosts', fake_filter_hosts)
         self.stubs.Set(least_cost, 'weighted_sum', _fake_weighted_sum)
         self.stubs.Set(nova.db, 'zone_get_all', fake_zone_get_all)
@@ -254,9 +240,10 @@ class DistributedSchedulerTestCase(test.TestCase):
             return least_cost.WeightedHost(self.next_weight, host=host,
                                            hostinfo=hostinfo)
 
-        sched = ds_fakes.FakeDistributedScheduler()
-        fake_context = context.RequestContext('user', 'project')
-        sched.zone_manager = ds_fakes.FakeZoneManager()
+        sched = fakes.FakeDistributedScheduler()
+        fake_context = context.RequestContext('user', 'project',
+                is_admin=True)
+        sched.host_manager = fakes.FakeHostManager()
         self.stubs.Set(sched, '_filter_hosts', fake_filter_hosts)
         self.stubs.Set(least_cost, 'weighted_sum', _fake_weighted_sum)
         self.stubs.Set(nova.db, 'zone_get_all', fake_zone_get_all)
@@ -276,7 +263,7 @@ class DistributedSchedulerTestCase(test.TestCase):
     def test_decrypt_blob(self):
         """Test that the decrypt method works."""
 
-        fixture = ds_fakes.FakeDistributedScheduler()
+        fixture = fakes.FakeDistributedScheduler()
         test_data = {'weight': 1, 'host': 'x', 'blob': 'y', 'zone': 'z'}
 
         class StubDecryptor(object):
@@ -292,13 +279,16 @@ class DistributedSchedulerTestCase(test.TestCase):
                          blob='y', zone='z'))
 
     def test_get_cost_functions(self):
-        fixture = ds_fakes.FakeDistributedScheduler()
+        self.flags(reserved_host_memory_mb=128)
+        fixture = fakes.FakeDistributedScheduler()
         fns = fixture.get_cost_functions()
         self.assertEquals(len(fns), 1)
         weight, fn = fns[0]
         self.assertEquals(weight, 1.0)
-        hostinfo = zone_manager.HostInfo('host', free_ram_mb=1000)
-        self.assertEquals(1000, fn(hostinfo))
+        hostinfo = host_manager.HostState('host')
+        hostinfo.update_from_compute_node(dict(memory_mb=1000,
+                local_gb=0))
+        self.assertEquals(1000-128, fn(hostinfo))
 
     def test_filter_hosts_avoid(self):
         """Test to make sure _filter_hosts() filters original hosts if
@@ -307,8 +297,7 @@ class DistributedSchedulerTestCase(test.TestCase):
         def _fake_choose_host_filters():
             return []
 
-        sched = ds_fakes.FakeDistributedScheduler()
-        fake_context = context.RequestContext('user', 'project')
+        sched = fakes.FakeDistributedScheduler()
         self.stubs.Set(sched, '_choose_host_filters',
                        _fake_choose_host_filters)
 
@@ -327,8 +316,7 @@ class DistributedSchedulerTestCase(test.TestCase):
         def _fake_choose_host_filters():
             return []
 
-        sched = ds_fakes.FakeDistributedScheduler()
-        fake_context = context.RequestContext('user', 'project')
+        sched = fakes.FakeDistributedScheduler()
         self.stubs.Set(sched, '_choose_host_filters',
                        _fake_choose_host_filters)
 

@@ -90,15 +90,17 @@ class JsonFilter(abstract_filter.AbstractHostFilter):
     def instance_type_to_filter(self, instance_type):
         """Convert instance_type into JSON filter object."""
         required_ram = instance_type['memory_mb']
-        required_disk = instance_type['local_gb']
+        required_disk = instance_type['local_gb'] * 1024
         query = ['and',
-                ['>=', '$compute.host_memory_free', required_ram],
-                ['>=', '$compute.disk_available', required_disk]]
+                ['>=', '$free_ram_mb', required_ram],
+                ['>=', '$free_disk_mb', required_disk]]
         return json.dumps(query)
 
     def _parse_string(self, string, host, hostinfo):
         """Strings prefixed with $ are capability lookups in the
-        form '$service.capability[.subcap*]'.
+        form '$variable' where 'variable' is an attribute in the
+        HostState class.  If $variable is a dictionary, you may
+        use: $variable.dictkey
         """
         if not string:
             return None
@@ -106,16 +108,14 @@ class JsonFilter(abstract_filter.AbstractHostFilter):
             return string
 
         path = string[1:].split(".")
-        services = dict(compute=hostinfo.compute, network=hostinfo.network,
-                        volume=hostinfo.volume)
-        service = services.get(path[0], None)
-        if not service:
+        obj = getattr(hostinfo, path[0], None)
+        if obj is None:
             return None
         for item in path[1:]:
-            service = service.get(item, None)
-            if not service:
+            obj = obj.get(item, None)
+            if obj is None:
                 return None
-        return service
+        return obj
 
     def _process_filter(self, query, host, hostinfo):
         """Recursively parse the query structure."""

@@ -37,6 +37,7 @@ LOG = logging.getLogger('nova.scheduler.host_state')
 class ReadOnlyDict(UserDict.IterableUserDict):
     """A read-only dict."""
     def __init__(self, source=None):
+        self.data = {}
         self.update(source)
 
     def __setitem__(self, key, item):

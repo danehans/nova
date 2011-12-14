@@ -22,8 +22,7 @@ import nova
 from nova import exception
 from nova import test
 from nova.scheduler import distributed_scheduler as dist
-from nova.scheduler import zone_manager
-from nova.tests.scheduler import fake_zone_manager as ds_fakes
+from nova.tests.scheduler import fakes
 
 
 class HostFilterTestCase(test.TestCase):
@@ -59,7 +58,7 @@ class HostFilterTestCase(test.TestCase):
         self.flags(default_host_filters=default_host_filters,
                 reserved_host_disk_mb=0, reserved_host_memory_mb=0)
         self.instance_type = dict(name='tiny',
-                memory_mb=30,
+                memory_mb=1024,
                 vcpus=10,
                 local_gb=300,
                 flavorid=1,
@@ -68,7 +67,7 @@ class HostFilterTestCase(test.TestCase):
                 rxtx_cap=200,
                 extra_specs={})
         self.gpu_instance_type = dict(name='tiny.gpu',
-                memory_mb=30,
+                memory_mb=1024,
                 vcpus=10,
                 local_gb=300,
                 flavorid=2,
@@ -78,26 +77,26 @@ class HostFilterTestCase(test.TestCase):
                 extra_specs={'xpu_arch': 'fermi',
                              'xpu_info': 'Tesla 2050'})
 
-        self.zone_manager = ds_fakes.FakeZoneManager()
+        self.host_manager = fakes.FakeHostManager()
         states = {}
         for x in xrange(4):
             states['host%d' % (x + 1)] = {'compute': self._host_caps(x)}
-        self.zone_manager.service_states = states
+        self.host_manager.service_states = states
 
         # Add some extra capabilities to some hosts
-        host4 = self.zone_manager.service_states['host4']['compute']
+        host4 = self.host_manager.service_states['host4']['compute']
         host4['xpu_arch'] = 'fermi'
         host4['xpu_info'] = 'Tesla 2050'
 
-        host2 = self.zone_manager.service_states['host2']['compute']
+        host2 = self.host_manager.service_states['host2']['compute']
         host2['xpu_arch'] = 'radeon'
 
-        host3 = self.zone_manager.service_states['host3']['compute']
+        host3 = self.host_manager.service_states['host3']['compute']
         host3['xpu_arch'] = 'fermi'
         host3['xpu_info'] = 'Tesla 2150'
 
     def _get_all_hosts(self):
-        return self.zone_manager.get_all_host_data(None).items()
+        return self.host_manager.get_all_host_states(None).items()
 
     def test_choose_filter(self):
         # Test default filter ...
@@ -128,22 +127,23 @@ class HostFilterTestCase(test.TestCase):
             self.assertTrue(host.startswith('host'))
 
     def test_instance_type_filter(self):
+        self.flags(reserved_host_memory_mb=512)
         hf = nova.scheduler.filters.InstanceTypeFilter()
         # filter all hosts that can support 30 ram and 300 disk
         cooked = hf.instance_type_to_filter(self.instance_type)
         all_hosts = self._get_all_hosts()
+        self.assertEquals(len(all_hosts), 4)
         hosts = hf.filter_hosts(all_hosts, cooked, {})
-        self.assertEquals(3, len(hosts))
+        self.assertEquals(len(hosts), 2)
         just_hosts = [host for host, hostinfo in hosts]
         just_hosts.sort()
-        self.assertEquals('host4', just_hosts[2])
-        self.assertEquals('host3', just_hosts[1])
-        self.assertEquals('host2', just_hosts[0])
+        self.assertEquals('host4', just_hosts[1])
+        self.assertEquals('host3', just_hosts[0])
 
     def test_instance_type_filter_reserved_memory(self):
-        self.flags(reserved_host_memory_mb=2048)
+        self.flags(reserved_host_memory_mb=512)
         hf = nova.scheduler.filters.InstanceTypeFilter()
-        # filter all hosts that can support 30 ram and 300 disk after
+        # filter all hosts that can support 1024 ram and 300 disk after
         # reserving 2048 ram
         cooked = hf.instance_type_to_filter(self.instance_type)
         all_hosts = self._get_all_hosts()
@@ -151,12 +151,13 @@ class HostFilterTestCase(test.TestCase):
         self.assertEquals(2, len(hosts))
         just_hosts = [host for host, hostinfo in hosts]
         just_hosts.sort()
-        self.assertEquals('host4', just_hosts[1])
         self.assertEquals('host3', just_hosts[0])
+        self.assertEquals('host4', just_hosts[1])
 
     def test_instance_type_filter_extra_specs(self):
+        self.flags(reserved_host_memory_mb=512)
         hf = nova.scheduler.filters.InstanceTypeFilter()
-        # filter all hosts that can support 30 ram and 300 disk
+        # filter all hosts that can support 1024 ram and 300 disk
         cooked = hf.instance_type_to_filter(self.gpu_instance_type)
         all_hosts = self._get_all_hosts()
         hosts = hf.filter_hosts(all_hosts, cooked, {})
@@ -165,8 +166,9 @@ class HostFilterTestCase(test.TestCase):
         self.assertEquals('host4', just_hosts[0])
 
     def test_json_filter(self):
+        self.flags(reserved_host_memory_mb=512)
         hf = nova.scheduler.filters.JsonFilter()
-        # filter all hosts that can support 30 ram and 300 disk
+        # filter all hosts that can support 1024 ram and 300 disk
         cooked = hf.instance_type_to_filter(self.instance_type)
         all_hosts = self._get_all_hosts()
         hosts = hf.filter_hosts(all_hosts, cooked, {})
