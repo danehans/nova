@@ -25,6 +25,7 @@ import functools
 
 from nova.compute import vm_states
 from nova import db
+from nova import exception
 from nova import flags
 from nova import log as logging
 from nova import manager
@@ -60,7 +61,8 @@ class SchedulerManager(manager.Manager):
         """Converts all method calls to use the schedule method"""
         return functools.partial(self._schedule, key)
 
-    def periodic_tasks(self, context=None):
+    @manager.periodic_task
+    def _poll_child_zones(self, context):
         """Poll child zones periodically to get status."""
         self.zone_manager.update(context)
 
@@ -106,17 +108,24 @@ class SchedulerManager(manager.Manager):
         # Scheduler methods are responsible for casting.
         try:
             return real_meth(*args, **kwargs)
-        except Exception as e:
-            # If this affects a particular instance, move that
-            # instance to the ERROR state
-            if 'instance_id' in kwargs:
-                instance_id = kwargs['instance_id']
-                LOG.warning(_("Failed to %(driver_method)s: %(e)s.  "
-                              "Putting instance %(instance_id)s into "
+        except exception.NoValidHost as ex:
+            self._set_instance_error(method, context, ex, *args, **kwargs)
+        except Exception as ex:
+            with utils.save_and_reraise_exception():
+                self._set_instance_error(method, context, ex, *args, **kwargs)
+
+    # NOTE (David Subiros) : If the exception is raised ruing run_instance
+    #                        method, the DB record probably does not exist yet.
+    def _set_instance_error(self, method, context, ex, *args, **kwargs):
+        """Sets VM to Error state"""
+        LOG.warning(_("Failed to schedule_%(method)s: %(ex)s") % locals())
+        if method == "start_instance" or method == "run_instance":
+            instance_id = kwargs['instance_id']
+            if instance_id:
+                LOG.warning(_("Setting instance %(instance_id)s to "
                               "ERROR state.") % locals())
-                db.instance_update(context, kwargs['instance_id'],
-                                   dict(vm_state=vm_states.ERROR))
-            raise
+                db.instance_update(context, instance_id,
+                                    {'vm_state': vm_states.ERROR})
 
     # NOTE (masumotok) : This method should be moved to nova.api.ec2.admin.
     #                    Based on bexar design summit discussion,

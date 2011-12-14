@@ -297,10 +297,38 @@ class ComputeManager(manager.SchedulerDependentManager):
 
         return (swap, ephemerals, block_device_mapping)
 
+    def _is_instance_terminated(self, instance_uuid):
+        """Instance in DELETING task state or not found in DB"""
+        context = nova.context.get_admin_context()
+        try:
+            instance = self.db.instance_get_by_uuid(context, instance_uuid)
+            if instance['task_state'] == task_states.DELETING:
+                return True
+            return False
+        except:
+            return True
+
+    def _shutdown_instance_even_if_deleted(self, context, instance_uuid):
+        """Call terminate_instance even for already deleted instances"""
+        LOG.info(_("Going to force the deletion of the vm %(instance_uuid)s, "
+                   "even if it is deleted") % locals())
+        try:
+            try:
+                self.terminate_instance(context, instance_uuid)
+            except exception.InstanceNotFound:
+                LOG.info(_("Instance %(instance_uuid)s did not exist in the "
+                         "DB, but I will shut it down anyway using a special "
+                         "context") % locals())
+                ctxt = nova.context.get_admin_context(True)
+                self.terminate_instance(ctxt, instance_uuid)
+        except Exception as ex:
+            LOG.info(_("exception terminating the instance "
+                     "%(instance_id)s") % locals())
+
     def _run_instance(self, context, instance_uuid,
                       requested_networks=None,
                       injected_files=[],
-                      admin_pass=None,
+                      admin_password=None,
                       **kwargs):
         """Launch a new instance with specified options."""
         context = context.elevated()
@@ -315,18 +343,24 @@ class ComputeManager(manager.SchedulerDependentManager):
                 block_device_info = self._prep_block_device(context, instance)
                 instance = self._spawn(context, instance, image_meta,
                                        network_info, block_device_info,
-                                       injected_files, admin_pass)
+                                       injected_files, admin_password)
             except:
                 with utils.save_and_reraise_exception():
                     self._deallocate_network(context, instance)
             self._notify_about_instance_usage(instance)
+            if self._is_instance_terminated(instance_uuid):
+                raise exception.InstanceNotFound
         except exception.InstanceNotFound:
             LOG.exception(_("Instance %s not found.") % instance_uuid)
-            return  # assuming the instance was already deleted
-        except Exception:
+            # assuming the instance was already deleted, run "delete" again
+            # just in case
+            self._shutdown_instance_even_if_deleted(context, instance_uuid)
+            return
+        except Exception as e:
             with utils.save_and_reraise_exception():
                 self._instance_update(context, instance_uuid,
                                       vm_state=vm_states.ERROR)
+                self.add_instance_fault_from_exc(context, instance_uuid, e)
 
     def _check_instance_not_already_created(self, context, instance):
         """Ensure an instance with the same name is not already present."""
@@ -358,7 +392,7 @@ class ComputeManager(manager.SchedulerDependentManager):
             # glance.
 
             # TODO(jk0): Should size be required in the image service?
-            return
+            return image_meta
 
         instance_type_id = instance['instance_type_id']
         instance_type = instance_types.get_instance_type(instance_type_id)
@@ -368,7 +402,7 @@ class ComputeManager(manager.SchedulerDependentManager):
         # need to handle potential situations where local_gb is 0. This is
         # the default for m1.tiny.
         if allowed_size_gb == 0:
-            return
+            return image_meta
 
         allowed_size_bytes = allowed_size_gb * 1024 * 1024 * 1024
 
@@ -741,8 +775,10 @@ class ComputeManager(manager.SchedulerDependentManager):
                        'instance: %(instance_uuid)s (state: %(state)s '
                        'expected: %(running)s)') % locals())
 
-        self.driver.snapshot(context, instance_ref, image_id)
-        self._instance_update(context, instance_ref['id'], task_state=None)
+        try:
+            self.driver.snapshot(context, instance_ref, image_id)
+        finally:
+            self._instance_update(context, instance_ref['id'], task_state=None)
 
         if image_type == 'snapshot' and rotation:
             raise exception.ImageRotationNotAllowed()
@@ -970,7 +1006,7 @@ class ComputeManager(manager.SchedulerDependentManager):
         network_info = self._get_instance_nw_info(context, instance_ref)
         self.driver.destroy(instance_ref, network_info)
         topic = self.db.queue_get_for(context, FLAGS.compute_topic,
-                instance_ref['host'])
+                migration_ref['source_compute'])
         rpc.cast(context, topic,
                 {'method': 'finish_revert_resize',
                  'args': {'instance_uuid': instance_ref['uuid'],
@@ -998,6 +1034,7 @@ class ComputeManager(manager.SchedulerDependentManager):
         self._instance_update(context,
                               instance_ref["uuid"],
                               memory_mb=instance_type['memory_mb'],
+                              host=migration_ref['source_compute'],
                               vcpus=instance_type['vcpus'],
                               local_gb=instance_type['local_gb'],
                               instance_type_id=instance_type['id'])
@@ -1069,6 +1106,8 @@ class ComputeManager(manager.SchedulerDependentManager):
         migration_ref = self.db.migration_get(context, migration_id)
         instance_ref = self.db.instance_get_by_uuid(context,
                 migration_ref.instance_uuid)
+        instance_type_ref = self.db.instance_type_get(context,
+                migration_ref.new_instance_type_id)
 
         self.db.migration_update(context,
                                  migration_id,
@@ -1076,13 +1115,15 @@ class ComputeManager(manager.SchedulerDependentManager):
 
         try:
             disk_info = self.driver.migrate_disk_and_power_off(
-                    context, instance_ref, migration_ref['dest_host'])
-        except exception.MigrationError, error:
-            LOG.error(_('%s. Setting instance vm_state to ERROR') % (error,))
-            self._instance_update(context,
-                                  instance_uuid,
-                                  vm_state=vm_states.ERROR)
-            return
+                    context, instance_ref, migration_ref['dest_host'],
+                    instance_type_ref)
+        except Exception, error:
+            with utils.save_and_reraise_exception():
+                msg = _('%s. Setting instance vm_state to ERROR')
+                LOG.error(msg % error)
+                self._instance_update(context,
+                                      instance_uuid,
+                                      vm_state=vm_states.ERROR)
 
         self.db.migration_update(context,
                                  migration_id,
@@ -1133,9 +1174,17 @@ class ComputeManager(manager.SchedulerDependentManager):
         # Have to look up image here since we depend on disk_format later
         image_meta = _get_image_meta(context, instance_ref['image_ref'])
 
-        self.driver.finish_migration(context, migration_ref, instance_ref,
-                                     disk_info, network_info, image_meta,
-                                     resize_instance)
+        try:
+            self.driver.finish_migration(context, migration_ref, instance_ref,
+                                         disk_info, network_info, image_meta,
+                                         resize_instance)
+        except Exception, error:
+            with utils.save_and_reraise_exception():
+                msg = _('%s. Setting instance vm_state to ERROR')
+                LOG.error(msg % error)
+                self._instance_update(context,
+                                      instance_uuid,
+                                      vm_state=vm_states.ERROR)
 
         self._instance_update(context,
                               instance_uuid,
@@ -1721,6 +1770,12 @@ class ComputeManager(manager.SchedulerDependentManager):
         # must be deleted for preparing next block migration
         if block_migration:
             self.driver.destroy(instance_ref, network_info)
+        else:
+            # self.driver.destroy() usually performs  vif unplugging
+            # but we must do it explicitly here when block_migration
+            # is false, as the network devices at the source must be
+            # torn down
+            self.driver.unplug_vifs(instance_ref, network_info)
 
         LOG.info(_('Migrating %(i_name)s to %(dest)s finished successfully.')
                  % locals())
@@ -1794,77 +1849,39 @@ class ComputeManager(manager.SchedulerDependentManager):
         self.driver.destroy(instance_ref, network_info,
                             block_device_info, True)
 
-    def periodic_tasks(self, context=None):
-        """Tasks to be run at a periodic interval."""
-        error_list = super(ComputeManager, self).periodic_tasks(context)
-        if error_list is None:
-            error_list = []
+    @manager.periodic_task
+    def _poll_rebooting_instances(self, context):
+        if FLAGS.reboot_timeout > 0:
+            self.driver.poll_rebooting_instances(FLAGS.reboot_timeout)
 
-        try:
-            if FLAGS.reboot_timeout > 0:
-                self.driver.poll_rebooting_instances(FLAGS.reboot_timeout)
-        except Exception as ex:
-            LOG.warning(_("Error during poll_rebooting_instances: %s"),
-                    unicode(ex))
-            error_list.append(ex)
+    @manager.periodic_task
+    def _poll_rescued_instances(self, context):
+        if FLAGS.rescue_timeout > 0:
+            self.driver.poll_rescued_instances(FLAGS.rescue_timeout)
 
-        try:
-            if FLAGS.rescue_timeout > 0:
-                self.driver.poll_rescued_instances(FLAGS.rescue_timeout)
-        except Exception as ex:
-            LOG.warning(_("Error during poll_rescued_instances: %s"),
-                    unicode(ex))
-            error_list.append(ex)
+    @manager.periodic_task
+    def _poll_unconfirmed_resizes(self, context):
+        if FLAGS.resize_confirm_window > 0:
+            self.driver.poll_unconfirmed_resizes(FLAGS.resize_confirm_window)
 
-        try:
-            if FLAGS.resize_confirm_window > 0:
-                self.driver.poll_unconfirmed_resizes(
-                        FLAGS.resize_confirm_window)
-        except Exception as ex:
-            LOG.warning(_("Error during poll_unconfirmed_resizes: %s"),
-                    unicode(ex))
-            error_list.append(ex)
+    @manager.periodic_task
+    def _poll_bandwidth_usage(self, context, start_time=None, stop_time=None):
+        if not start_time:
+            start_time = utils.current_audit_period()[1]
 
-        try:
-            self._report_driver_status()
-        except Exception as ex:
-            LOG.warning(_("Error during report_driver_status(): %s"),
-                    unicode(ex))
-            error_list.append(ex)
-
-        try:
-            self._sync_power_states(context)
-        except Exception as ex:
-            LOG.warning(_("Error during power_state sync: %s"), unicode(ex))
-            error_list.append(ex)
-
-        try:
-            self._reclaim_queued_deletes(context)
-        except Exception as ex:
-            LOG.warning(_("Error during reclamation of queued deletes: %s"),
-                        unicode(ex))
-            error_list.append(ex)
-        try:
-            start = utils.current_audit_period()[1]
-            self._update_bandwidth_usage(context, start)
-        except NotImplementedError:
-            # Not all hypervisors have bandwidth polling implemented yet.
-            # If they don't id doesn't break anything, they just don't get the
-            # info in the usage events. (mdragon)
-            pass
-        except Exception as ex:
-            LOG.warning(_("Error updating bandwidth usage: %s"),
-                        unicode(ex))
-            error_list.append(ex)
-
-        return error_list
-
-    def _update_bandwidth_usage(self, context, start_time, stop_time=None):
         curr_time = time.time()
         if curr_time - self._last_bw_usage_poll > FLAGS.bandwith_poll_interval:
             self._last_bw_usage_poll = curr_time
             LOG.info(_("Updating bandwidth usage cache"))
-            bw_usage = self.driver.get_all_bw_usage(start_time, stop_time)
+
+            try:
+                bw_usage = self.driver.get_all_bw_usage(start_time, stop_time)
+            except NotImplementedError:
+                # NOTE(mdragon): Not all hypervisors have bandwidth polling
+                # implemented yet.  If they don't it doesn't break anything,
+                # they just don't get the info in the usage events.
+                return
+
             for usage in bw_usage:
                 vif = usage['virtual_interface']
                 self.db.bw_usage_update(context,
@@ -1873,7 +1890,8 @@ class ComputeManager(manager.SchedulerDependentManager):
                                         start_time,
                                         usage['bw_in'], usage['bw_out'])
 
-    def _report_driver_status(self):
+    @manager.periodic_task
+    def _report_driver_status(self, context):
         curr_time = time.time()
         if curr_time - self._last_host_check > FLAGS.host_state_interval:
             self._last_host_check = curr_time
@@ -1883,6 +1901,7 @@ class ComputeManager(manager.SchedulerDependentManager):
             self.update_service_capabilities(
                 self.driver.get_host_stats(refresh=True))
 
+    @manager.periodic_task
     def _sync_power_states(self, context):
         """Align power states between the database and the hypervisor.
 
@@ -1921,16 +1940,48 @@ class ComputeManager(manager.SchedulerDependentManager):
                                   db_instance["id"],
                                   power_state=vm_power_state)
 
+    @manager.periodic_task
     def _reclaim_queued_deletes(self, context):
         """Reclaim instances that are queued for deletion."""
+        if FLAGS.reclaim_instance_interval <= 0:
+            LOG.debug(_("FLAGS.reclaim_instance_interval <= 0, skipping..."))
+            return
 
         instances = self.db.instance_get_all_by_host(context, self.host)
-
-        queue_time = datetime.timedelta(
-                         seconds=FLAGS.reclaim_instance_interval)
-        curtime = utils.utcnow()
         for instance in instances:
-            if instance['vm_state'] == vm_states.SOFT_DELETE and \
-               (curtime - instance['deleted_at']) >= queue_time:
-                LOG.info('Deleting %s' % instance['name'])
+            old_enough = (not instance.deleted_at or utils.is_older_than(
+                    instance.deleted_at,
+                    FLAGS.reclaim_instance_interval))
+            soft_deleted = instance.vm_state == vm_states.SOFT_DELETE
+
+            if soft_deleted and old_enough:
+                instance_id = instance.id
+                LOG.info(_("Reclaiming deleted instance %(instance_id)s"),
+                         locals())
                 self._delete_instance(context, instance)
+
+    def add_instance_fault_from_exc(self, context, instance_uuid, fault):
+        """Adds the specified fault to the database."""
+        if hasattr(fault, "code"):
+            code = fault.code
+        else:
+            code = 500
+
+        values = {
+            'instance_uuid': instance_uuid,
+            'code': code,
+            'message': fault.__class__.__name__,
+            'details': fault.message,
+        }
+        self.db.instance_fault_create(context, values)
+
+    def add_instance_fault(self, context, instance_uuid, code=500,
+                           message='', details=''):
+        """Adds a fault to the database using the specified values."""
+        values = {
+            'instance_uuid': instance_uuid,
+            'code': code,
+            'message': message,
+            'details': details,
+        }
+        self.db.instance_fault_create(context, values)

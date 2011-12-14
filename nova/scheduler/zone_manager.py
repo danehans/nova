@@ -145,7 +145,7 @@ class ZoneManager(object):
             zone_state.poll()
         self.green_pool.imap(_worker, self.zone_states.values())
 
-    def update(self, context=None):
+    def update(self, context):
         """Update status for all zones.  This should be called
         periodically to refresh the zome states.
         """

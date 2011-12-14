@@ -250,6 +250,11 @@ class InvalidParameterValue(Invalid):
     message = _("%(err)s")
 
 
+class InstanceInvalidState(Invalid):
+    message = _("Instance %(instance_uuid)s in state %(state)s. Cannot "
+                "%(method)s while the instance is in this state.")
+
+
 class InstanceNotRunning(Invalid):
     message = _("Instance %(instance_id)s is not running.")
 
@@ -315,6 +320,10 @@ class InvalidDevicePath(Invalid):
 
 class InvalidCPUInfo(Invalid):
     message = _("Unacceptable CPU info") + ": %(reason)s"
+
+
+class InvalidIpAddressError(Invalid):
+    message = _("%(address)s is not a valid IP v4/6 address.")
 
 
 class InvalidVLANTag(Invalid):
@@ -509,10 +518,6 @@ class FixedIpNotFoundForNetworkHost(FixedIpNotFound):
 
 class FixedIpNotFoundForSpecificInstance(FixedIpNotFound):
     message = _("Instance %(instance_id)s doesn't have fixed ip '%(ip)s'.")
-
-
-class FixedIpNotFoundForVirtualInterface(FixedIpNotFound):
-    message = _("Virtual interface %(vif_id)s has zero associated fixed ips.")
 
 
 class FixedIpNotFoundForHost(FixedIpNotFound):
@@ -806,8 +811,8 @@ class MalformedRequestBody(NovaException):
     message = _("Malformed message body: %(reason)s")
 
 
-class PasteConfigNotFound(NotFound):
-    message = _("Could not find paste config at %(path)s")
+class ConfigNotFound(NotFound):
+    message = _("Could not find config at %(path)s")
 
 
 class PasteAppNotFound(NotFound):
@@ -828,10 +833,6 @@ class VirtualStorageArrayNotFoundByName(NotFound):
 
 class CannotResizeToSameSize(NovaException):
     message = _("When resizing, instances must change size!")
-
-
-class CannotResizeToSmallerSize(NovaException):
-    message = _("Resizing to a smaller size is not supported.")
 
 
 class ImageTooLarge(NovaException):

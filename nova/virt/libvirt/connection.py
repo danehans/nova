@@ -139,7 +139,7 @@ flags.DEFINE_list('libvirt_volume_drivers',
                   ['iscsi=nova.virt.libvirt.volume.LibvirtISCSIVolumeDriver',
                    'local=nova.virt.libvirt.volume.LibvirtVolumeDriver',
                    'fake=nova.virt.libvirt.volume.LibvirtFakeVolumeDriver',
-                   'rdb=nova.virt.libvirt.volume.LibvirtNetVolumeDriver',
+                   'rbd=nova.virt.libvirt.volume.LibvirtNetVolumeDriver',
                    'sheepdog=nova.virt.libvirt.volume.LibvirtNetVolumeDriver'],
                   'Libvirt handlers for remote volumes.')
 flags.DEFINE_string('default_local_format',
@@ -290,9 +290,14 @@ class LibvirtConnection(driver.ComputeDriver):
         return infos
 
     def plug_vifs(self, instance, network_info):
-        """Plugin VIFs into networks."""
+        """Plug VIFs into networks."""
         for (network, mapping) in network_info:
             self.vif_driver.plug(instance, network, mapping)
+
+    def unplug_vifs(self, instance, network_info):
+        """Unplug VIFs from networks."""
+        for (network, mapping) in network_info:
+            self.vif_driver.unplug(instance, network, mapping)
 
     def destroy(self, instance, network_info, block_device_info=None,
                 cleanup=True):
@@ -350,8 +355,7 @@ class LibvirtConnection(driver.ComputeDriver):
                             locals())
                 raise
 
-        for (network, mapping) in network_info:
-            self.vif_driver.unplug(instance, network, mapping)
+        self.unplug_vifs(instance, network_info)
 
         def _wait_for_destroy():
             """Called at an interval until the VM is gone."""
@@ -545,6 +549,7 @@ class LibvirtConnection(driver.ComputeDriver):
         # better because we cannot ensure flushing dirty buffers
         # in the guest OS. But, in case of KVM, shutdown() does not work...
         self.destroy(instance, network_info, cleanup=False)
+        self.unplug_vifs(instance, network_info)
         self.plug_vifs(instance, network_info)
         self.firewall_driver.setup_basic_filtering(instance, network_info)
         self.firewall_driver.prepare_instance_filter(instance, network_info)
@@ -595,7 +600,7 @@ class LibvirtConnection(driver.ComputeDriver):
         dom.create()
 
     @exception.wrap_exception()
-    def rescue(self, context, instance, network_info):
+    def rescue(self, context, instance, network_info, image_meta):
         """Loads a VM using rescue images.
 
         A rescue is normally performed when something goes wrong with the

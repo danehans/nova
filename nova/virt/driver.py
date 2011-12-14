@@ -236,7 +236,8 @@ class ComputeDriver(object):
         """
         raise NotImplementedError()
 
-    def migrate_disk_and_power_off(self, context, instance, dest):
+    def migrate_disk_and_power_off(self, context, instance, dest,
+                                   instance_type):
         """
         Transfers the disk of a running instance in multiple phases, turning
         off the instance before the end.
@@ -296,7 +297,7 @@ class ComputeDriver(object):
         # TODO(Vek): Need to pass context in for access to auth_token
         raise NotImplementedError()
 
-    def rescue(self, context, instance, network_info):
+    def rescue(self, context, instance, network_info, image_meta):
         """Rescue the specified instance"""
         raise NotImplementedError()
 
@@ -515,8 +516,12 @@ class ComputeDriver(object):
         raise NotImplementedError()
 
     def plug_vifs(self, instance, network_info):
-        """Plugs in VIFs to networks."""
+        """Plug VIFs into networks."""
         # TODO(Vek): Need to pass context in for access to auth_token
+        raise NotImplementedError()
+
+    def unplug_vifs(self, instance, network_info):
+        """Unplug VIFs from networks."""
         raise NotImplementedError()
 
     def update_host_status(self):
