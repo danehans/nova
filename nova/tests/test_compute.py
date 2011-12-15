@@ -135,6 +135,7 @@ class BaseTestCase(test.TestCase):
             params = {}
 
         inst = {}
+        inst['vm_state'] = vm_states.ACTIVE
         inst['image_ref'] = 1
         inst['reservation_id'] = 'r-fakeres'
         inst['launch_time'] = '10'
@@ -163,8 +164,7 @@ class BaseTestCase(test.TestCase):
         inst['local_gb'] = '20'
         inst['flavorid'] = '1'
         inst['swap'] = '2048'
-        inst['rxtx_quota'] = 100
-        inst['rxtx_cap'] = 200
+        inst['rxtx_factor'] = 1
         inst.update(params)
         return db.instance_type_create(context, inst)['id']
 
@@ -1646,6 +1646,10 @@ class ComputeAPITestCase(BaseTestCase):
         self.assertEqual(instance['task_state'], None)
 
         self.compute.pause_instance(self.context, instance_uuid)
+        # set the state that the instance gets when pause finishes
+        db.instance_update(self.context, instance['uuid'],
+                           {'vm_state': vm_states.PAUSED})
+        instance = db.instance_get_by_uuid(self.context, instance['uuid'])
 
         self.compute_api.unpause(self.context, instance)
 
@@ -1845,7 +1849,6 @@ class ComputeAPITestCase(BaseTestCase):
         db.instance_destroy(self.context, instance_uuid)
 
     def test_resize_confirm_through_api(self):
-        """Ensure invalid flavors raise"""
         instance = self._create_fake_instance()
         context = self.context.elevated()
         self.compute.run_instance(self.context, instance['uuid'])
@@ -1866,7 +1869,6 @@ class ComputeAPITestCase(BaseTestCase):
         self.compute.terminate_instance(context, instance['uuid'])
 
     def test_resize_revert_through_api(self):
-        """Ensure invalid flavors raise"""
         instance = self._create_fake_instance()
         context = self.context.elevated()
         instance = db.instance_get_by_uuid(context, instance['uuid'])
@@ -1878,6 +1880,11 @@ class ComputeAPITestCase(BaseTestCase):
         migration_ref = db.migration_create(context,
                 {'instance_uuid': instance['uuid'],
                  'status': 'finished'})
+        # set the state that the instance gets when resize finishes
+        db.instance_update(self.context, instance['uuid'],
+                           {'task_state': task_states.RESIZE_VERIFY,
+                            'vm_state': vm_states.ACTIVE})
+        instance = db.instance_get_by_uuid(context, instance['uuid'])
 
         self.compute_api.revert_resize(context, instance)
         self.compute.terminate_instance(context, instance['uuid'])
