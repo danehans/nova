@@ -174,7 +174,12 @@ class HostInfo(object):
         self.work_in_progress = work_in_progress
 
     def consume_resources(self, disk_gb, ram_mb):
-        """Consume some of the mutable resources."""
+        """Consume resources in the Capacity table and update the
+        local resources as well."""
+        db.capacity_update(context, free_ram_mb_delta=-ram_mb,
+                           free_disk_gb_delta=-disk_gb, work_delta=1,
+                           vm_delta=1)
+
         self.free_disk_gb -= disk_gb
         self.free_ram_mb -= ram_mb
         self.running_vms -= 1

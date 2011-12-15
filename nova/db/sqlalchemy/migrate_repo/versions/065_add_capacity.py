@@ -68,7 +68,7 @@ def upgrade(migrate_engine):
         try:
             table.create()
         except Exception, e:
-            logging.exception("Unable to do migration 64. '%s'" % e)
+            logging.exception("Unable to do migration 65. '%s'" % e)
 
 
 def downgrade(migrate_engine):
@@ -77,4 +77,4 @@ def downgrade(migrate_engine):
         try:
             table.drop()
         except Exception, e:
-            logging.exception("Unable to do migration 64. '%s'" % e)
+            logging.exception("Unable to do migration 65. '%s'" % e)
