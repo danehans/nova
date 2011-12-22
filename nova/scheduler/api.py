@@ -85,9 +85,9 @@ def zone_update(context, zone_id, data):
     return db.zone_update(context, zone_id, data)
 
 
-def get_zone_capabilities(context):
+def get_service_capabilities(context):
     """Returns a dict of key, value capabilities for this zone."""
-    return _call_scheduler('get_zone_capabilities', context=context)
+    return _call_scheduler('get_service_capabilities', context=context)
 
 
 def select(context, specs=None):

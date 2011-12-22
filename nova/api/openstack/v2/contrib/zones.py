@@ -84,7 +84,7 @@ class Controller(object):
     def info(self, req):
         """Return name and capabilities for this zone."""
         context = req.environ['nova.context']
-        items = nova.scheduler.api.get_zone_capabilities(context)
+        items = nova.scheduler.api.get_service_capabilities(context)
 
         zone = dict(name=FLAGS.zone_name)
         caps = FLAGS.zone_capabilities

@@ -21,22 +21,32 @@
 Scheduler base class that all Schedulers should inherit from
 """
 
+import contextlib
+
+from nova.api.ec2 import ec2utils
+from nova.compute import api as compute_api
+from nova.compute import power_state
+from nova.compute import vm_states
 from nova import db
 from nova import exception
 from nova import flags
 from nova import log as logging
 from nova import rpc
+from nova.scheduler import host_manager
+from nova.scheduler import zone_manager
 from nova import utils
-from nova.compute import api as compute_api
-from nova.compute import power_state
-from nova.compute import vm_states
-from nova.api.ec2 import ec2utils
 
 
 FLAGS = flags.FLAGS
 LOG = logging.getLogger('nova.scheduler.driver')
 flags.DEFINE_integer('service_down_time', 60,
                      'maximum time since last check-in for up service')
+flags.DEFINE_string('scheduler_host_manager',
+        'nova.scheduler.host_manager.HostManager',
+        'The scheduler host manager class to use')
+flags.DEFINE_string('scheduler_zone_manager',
+        'nova.scheduler.zone_manager.ZoneManager',
+        'The scheduler zone manager class to use')
 flags.DECLARE('instances_path', 'nova.compute.manager')
 
 
@@ -113,20 +123,58 @@ def encode_instance(instance, local=True):
     if local:
         return dict(id=instance['id'], _is_precooked=False)
     else:
-        instance['_is_precooked'] = True
-        return instance
+        inst = dict(instance)
+        inst['_is_precooked'] = True
+        return inst
+
+
+@contextlib.contextmanager
+def shared_storage_test_file(context, host):
+    """Context manager for creating a test file on a compute host for
+    shared storage verification.
+    Usage: 'with shared_storage_test_file(context, host) as filename:'
+    """
+    queue = db.queue_get_for(context, FLAGS.compute_topic, host)
+    filename = rpc.call(context, queue,
+            {"method": 'create_shared_storage_test_file'})
+    try:
+        yield filename
+    finally:
+        rpc.cast(context, queue,
+                {'method': 'cleanup_shared_storage_test_file',
+                 'args': {'filename': filename}})
 
 
 class Scheduler(object):
     """The base class that all Scheduler classes should inherit from."""
 
     def __init__(self):
-        self.zone_manager = None
+        self.zone_manager = utils.import_object(
+                FLAGS.scheduler_zone_manager)
+        self.host_manager = utils.import_object(
+                FLAGS.scheduler_host_manager)
         self.compute_api = compute_api.API()
 
-    def set_zone_manager(self, zone_manager):
-        """Called by the Scheduler Service to supply a ZoneManager."""
-        self.zone_manager = zone_manager
+    def get_host_list(self):
+        """Get a list of hosts from the HostManager."""
+        return self.host_manager.get_host_list()
+
+    def get_zone_list(self):
+        """Get a list of zones from the ZoneManager."""
+        return self.zone_manager.get_zone_list()
+
+    def get_service_capabilities(self):
+        """Get the normalized set of capabilities for this zone."""
+        return self.host_manager.get_service_capabilities()
+
+    def update_service_capabilities(self, service_name, host, capabilities):
+        """Process a capability update from a service node."""
+        self.host_manager.update_service_capabilities(service_name,
+                host, capabilties)
+
+    def poll_child_zones(self, context):
+        """Poll child zones periodically to get status."""
+        return self.zone_manager.update(context)
 
     @staticmethod
     def service_is_up(service):
@@ -140,7 +188,7 @@ class Scheduler(object):
         """Return the list of hosts that have a running service for topic."""
 
         services = db.service_get_all_by_topic(context, topic)
-        return [service.host
+        return [service['host']
                 for service in services
                 if self.service_is_up(service)]
 
@@ -167,6 +215,10 @@ class Scheduler(object):
     def schedule(self, context, topic, method, *_args, **_kwargs):
         """Must override at least this method for scheduler to work."""
         raise NotImplementedError(_("Must implement a fallback schedule"))
+
+    def select(self, context, topic, method, *_args, **_kwargs):
+        """Must override this for zones to work."""
+        raise NotImplementedError(_("Must implement 'select' method"))
 
     def schedule_live_migration(self, context, instance_id, dest,
                                 block_migration=False):
@@ -226,7 +278,7 @@ class Scheduler(object):
         # to the instance.
         if len(instance_ref['volumes']) != 0:
             services = db.service_get_all_by_topic(context, 'volume')
-            if len(services) < 1 or  not self.service_is_up(services[0]):
+            if len(services) < 1 or not self.service_is_up(services[0]):
                 raise exception.VolumeServiceUnavailable()
 
         # Checking src host exists and compute node
@@ -291,6 +343,7 @@ class Scheduler(object):
                 reason = _("Block migration can not be used "
                            "with shared storage.")
                 raise exception.InvalidSharedStorage(reason=reason, path=dest)
+        # FIXME(comstud): See LP891756.
         except exception.FileNotFound:
             if not block_migration:
                 src = instance_ref['host']
@@ -300,14 +353,14 @@ class Scheduler(object):
                                 "and %(dest)s.") % locals())
                 raise
 
-        # Checking dest exists.
+        # Get the dest host service ref
         dservice_refs = db.service_get_all_compute_by_host(context, dest)
         dservice_ref = dservice_refs[0]['compute_node'][0]
 
-        # Checking original host( where instance was launched at) exists.
+        # Find the src host service ref
         try:
             oservice_refs = db.service_get_all_compute_by_host(context,
-                                           instance_ref['launched_on'])
+                                           instance_ref['host'])
         except exception.NotFound:
             raise exception.SourceHostUnavailable()
         oservice_ref = oservice_refs[0]['compute_node'][0]
@@ -331,11 +384,13 @@ class Scheduler(object):
                      {"method": 'compare_cpu',
                       "args": {'cpu_info': oservice_ref['cpu_info']}})
 
-        except rpc.RemoteError:
+        except rpc.RemoteError, err:
+            # FIXME(comstud): Should check 'err.exc_type' for specific
+            # exception class name
             src = instance_ref['host']
             LOG.exception(_("host %(dest)s is not compatible with "
                                 "original host %(src)s.") % locals())
-            raise
+            raise exception.SchedulerDestHostIncompatibleCPU()
 
     def assert_compute_node_has_enough_resources(self, context, instance_ref,
                                                  dest, block_migration):
@@ -442,29 +497,13 @@ class Scheduler(object):
         """
 
         src = instance_ref['host']
-        dst_t = db.queue_get_for(context, FLAGS.compute_topic, dest)
-        src_t = db.queue_get_for(context, FLAGS.compute_topic, src)
+        src_queue = db.queue_get_for(context, FLAGS.compute_topic, src)
 
-        filename = None
-
-        try:
-            # create tmpfile at dest host
-            filename = rpc.call(context, dst_t,
-                                {"method": 'create_shared_storage_test_file'})
-
+        with shared_storage_test_file(context, dest) as filename:
             # make sure existence at src host.
-            ret = rpc.call(context, src_t,
+            ret = rpc.call(context, src_queue,
                           {"method": 'check_shared_storage_test_file',
                            "args": {'filename': filename}})
             if not ret:
+                # FIXME(comstud): See LP891756.
                 raise exception.FileNotFound(file_path=filename)
-
-        except exception.FileNotFound:
-            raise
-
-        finally:
-            # Should only be None for tests?
-            if filename is not None:
-                rpc.call(context, dst_t,
-                         {"method": 'cleanup_shared_storage_test_file',
-                          "args": {'filename': filename}})

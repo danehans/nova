@@ -1079,7 +1079,7 @@ class SimpleDriverTestCase(test.TestCase):
             db.queue_get_for(mox.IgnoreArg(), topic, i_ref['host']),
             {"method": 'check_shared_storage_test_file',
              "args": {'filename': fpath}})
-        driver.rpc.call(mox.IgnoreArg(),
+        driver.rpc.cast(mox.IgnoreArg(),
             db.queue_get_for(mox.IgnoreArg(), topic, dest),
             {"method": 'cleanup_shared_storage_test_file',
              "args": {'filename': fpath}})
@@ -1144,42 +1144,69 @@ class SimpleDriverTestCase(test.TestCase):
         db.service_destroy(self.context, s_ref['id'])
         db.service_destroy(self.context, s_ref2['id'])
 
-    def test_live_migration_common_check_checking_cpuinfo_fail(self):
-        """Raise exception when original host doesn't have compatible cpu."""
+    def _live_migration_instance(self):
+        volume1 = {'id': 31338}
+        volume2 = {'id': 31339}
+        return {'id': 31337,
+                'host': 'fake_host1',
+                'volumes': [volume1, volume2],
+                'power_state': power_state.RUNNING,
+                'memory_mb': 1024,
+                'local_gb': 1024}
 
-        dest = 'dummydest'
-        instance_id = _create_instance(host='dummy')['id']
-        i_ref = db.instance_get(self.context, instance_id)
-
-        # compute service for destination
-        s_ref = self._create_compute_service(host=i_ref['host'])
-        # compute service for original host
-        s_ref2 = self._create_compute_service(host=dest)
-
-        # mocks
+    def test_live_migration_dest_host_incompatabile_cpu_raises(self):
         driver = self.scheduler.driver
-        self.mox.StubOutWithMock(driver, 'mounted_on_same_shared_storage')
-        driver.mounted_on_same_shared_storage(mox.IgnoreArg(), i_ref, dest)
-        self.mox.StubOutWithMock(rpc, 'call', use_mock_anything=True)
-        rpc.call(mox.IgnoreArg(), mox.IgnoreArg(),
-            {"method": 'compare_cpu',
-            "args": {'cpu_info': s_ref2['compute_node'][0]['cpu_info']}}).\
-            AndRaise(rpc.RemoteError(exception.InvalidCPUInfo,
-                                     exception.InvalidCPUInfo(reason='fake')))
+        self.mox.StubOutWithMock(db, 'instance_get')
+        self.mox.StubOutWithMock(driver, '_live_migration_src_check')
+        self.mox.StubOutWithMock(driver, '_live_migration_dest_check')
+        self.mox.StubOutWithMock(db, 'queue_get_for')
+        self.mox.StubOutWithMock(rpc, 'call')
+        self.mox.StubOutWithMock(rpc, 'cast')
+        self.mox.StubOutWithMock(db, 'service_get_all_compute_by_host')
+
+        dest = 'fake_host2'
+        block_migration = False
+        instance = self._live_migration_instance()
+        db.instance_get(self.context, instance['id']).AndReturn(instance)
+
+        driver._live_migration_src_check(self.context, instance)
+        driver._live_migration_dest_check(self.context, instance,
+                dest, block_migration)
+
+        db.queue_get_for(self.context, FLAGS.compute_topic,
+                instance['host']).AndReturn('src_queue')
+        db.queue_get_for(self.context, FLAGS.compute_topic,
+                dest).AndReturn('dest_queue')
+        tmp_filename = 'test-filename'
+        rpc.call(self.context, 'dest_queue',
+                {'method': 'create_shared_storage_test_file'}
+                ).AndReturn(tmp_filename)
+        rpc.call(self.context, 'src_queue',
+                {'method': 'check_shared_storage_test_file',
+                 'args': {'filename': tmp_filename}}).AndReturn(True)
+        rpc.cast(self.context, 'dest_queue',
+                {'method': 'cleanup_shared_storage_test_file',
+                 'args': {'filename': tmp_filename}})
+        db.service_get_all_compute_by_host(self.context, dest).AndReturn(
+                [{'compute_node': [{'hypervisor_type': 'xen',
+                                    'hypervisor_version': 1}]}])
+        db.service_get_all_compute_by_host(self.context,
+            instance['host']).AndReturn(
+                    [{'compute_node': [{'hypervisor_type': 'xen',
+                                        'hypervisor_version': 1,
+                                        'cpu_info': 'fake_cpu_info'}]}])
+        db.queue_get_for(self.context, FLAGS.compute_topic,
+                dest).AndReturn('dest_queue')
+        rpc.call(self.context, 'dest_queue',
+                {'method': 'compare_cpu',
+                 'args': {'cpu_info': 'fake_cpu_info'}}).AndRaise(
+                         rpc.RemoteError())
 
         self.mox.ReplayAll()
-        try:
-            driver._live_migration_common_check(self.context,
-                                                               i_ref,
-                                                               dest,
-                                                               False)
-        except rpc.RemoteError, e:
-            c = (e.exc_type == exception.InvalidCPUInfo)
-
-        self.assertTrue(c)
-        db.instance_destroy(self.context, instance_id)
-        db.service_destroy(self.context, s_ref['id'])
-        db.service_destroy(self.context, s_ref2['id'])
+        self.assertRaises(exception.SchedulerDestHostIncompatibleCPU,
+                driver.schedule_live_migration, self.context,
+                instance_id=instance['id'], dest=dest,
+                block_migration=block_migration)
 
 
 class MultiDriverTestCase(SimpleDriverTestCase):
