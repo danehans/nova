@@ -50,7 +50,7 @@ class SchedulerManagerTestCase(test.TestCase):
         self.flags(scheduler_driver=self.driver_cls_name)
         self.stubs.Set(compute_api, 'API', fakes.FakeComputeAPI)
         self.manager = self.manager_cls()
-        self.context = 'fake_context'
+        self.context = context.RequestContext('fake_user', 'fake_project')
         self.topic = 'fake_topic'
         self.fake_args = (1, 2, 3)
         self.fake_kwargs = {'cat': 'meow', 'dog': 'woof'}
@@ -261,13 +261,14 @@ class SchedulerManagerTestCase(test.TestCase):
 class SchedulerTestCase(test.TestCase):
     """Test case for base scheduler driver class"""
 
+    # So we can subclass this test and re-use tests if we need.
     driver_cls = driver.Scheduler
 
     def setUp(self):
-        super(SchedulerClassTestCase, self).setUp()
+        super(SchedulerTestCase, self).setUp()
         self.stubs.Set(compute_api, 'API', fakes.FakeComputeAPI)
-        self.driver = driver.Scheduler()
-        self.context = 'fake_context'
+        self.driver = self.driver_cls()
+        self.context = context.RequestContext('fake_user', 'fake_project')
         self.topic = 'fake_topic'
 
     def test_get_host_list(self):
@@ -972,11 +973,9 @@ class SchedulerTestCase(test.TestCase):
 class SchedulerDriverModuleTestCase(test.TestCase):
     """Test case for scheduler driver module methods"""
 
-    driver_cls = driver.Scheduler
-
     def setUp(self):
-        super(SchedulerDriverTestCase, self).setUp()
-        self.context = 'fake_context'
+        super(SchedulerDriverModuleTestCase, self).setUp()
+        self.context = context.RequestContext('fake_user', 'fake_project')
 
     def test_cast_to_volume_host_update_db_with_volume_id(self):
         host = 'fake_host1'

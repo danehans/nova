@@ -247,7 +247,7 @@ class HostManagerTestCase(test.TestCase):
         self.host_manager.delete_expired_host_services({'host1': ['volume']})
 
         self.mox.ReplayAll()
-        result = self.host_manager.get_service_capabilities(None)
+        result = self.host_manager.get_service_capabilities()
         self.mox.VerifyAll()
 
         self.assertEqual(info['called'], 5)
