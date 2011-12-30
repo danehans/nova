@@ -67,18 +67,18 @@ class WeightedHost(object):
         return x
 
 
-def noop_cost_fn(host_state, options=None):
+def noop_cost_fn(host_state, weighing_properties):
     """Return a pre-weight cost of 1 for each host"""
     return 1
 
 
-def compute_fill_first_cost_fn(host_state, options=None):
+def compute_fill_first_cost_fn(host_state, weighing_properties):
     """More free ram = higher weight. So servers will less free
     ram will be preferred."""
     return host_state.free_ram_mb
 
 
-def weighted_sum(weighted_fns, host_states, options):
+def weighted_sum(weighted_fns, host_states, weighing_properties):
     """Use the weighted-sum method to compute a score for an array of objects.
     Normalize the results of the objective-functions so that the weights are
     meaningful regardless of objective-function's range.
@@ -86,7 +86,8 @@ def weighted_sum(weighted_fns, host_states, options):
     host_list - [(host, HostInfo()), ...]
     weighted_fns - list of weights and functions like:
         [(weight, objective-functions), ...]
-    options is an arbitrary dict of values.
+    weighing_properties is an arbitrary dict of values that can influence
+        weights.
 
     Returns a single WeightedHost object which represents the best
     candidate.
@@ -96,7 +97,8 @@ def weighted_sum(weighted_fns, host_states, options):
     # One row per host. One column per function.
     scores = []
     for weight, fn in weighted_fns:
-        scores.append([fn(host_state, options) for host_state in host_states])
+        scores.append([fn(host_state, weighing_properties)
+                for host_state in host_states])
 
     # Adjust the weights in the grid by the functions weight adjustment
     # and sum them up to get a final list of weights.

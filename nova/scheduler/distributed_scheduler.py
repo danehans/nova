@@ -278,6 +278,14 @@ class DistributedScheduler(driver.Scheduler):
         """Fetch options dictionary. Broken out for testing."""
         return self.options.get_configuration()
 
+    def populate_filter_properties(self, request_spec, filter_properties):
+        """Stuff things into filter_properties.  Can be overriden in a
+        subclass to add more data.
+        """
+        original_host = request_spec.get('original_host', None)
+        if original_host and request_spec.get('avoid_original_host', True):
+            filter_properties.ignore_hosts.append(original_host)
+
     def _schedule(self, elevated, topic, request_spec, *args, **kwargs):
         """Returns a list of hosts that meet the required specs,
         ordered by their fitness.
@@ -299,15 +307,11 @@ class DistributedScheduler(driver.Scheduler):
 
         config_options = self._get_configuration_options()
 
-        project_id = request_spec['instance_properties']['project_id']
         filter_properties = {'config_options': config_options,
                              'instance_type': instance_type,
-                             'project_id': project_id,
                              'ignore_hosts': []}
 
-        original_host = request_spec.get('original_host', None)
-        if original_host and request_spec.get('avoid_original_host', True):
-            filter_properties.ignore_hosts.append(original_host)
+        self.populate_filter_properties(request_spec, filter_properties)
 
         # Find our local list of acceptable hosts by repeatedly
         # filtering and weighing our options. Each time we choose a
@@ -333,8 +337,12 @@ class DistributedScheduler(driver.Scheduler):
 
             # weighted_host = WeightedHost() ... the best
             # host for the job.
+            # TODO(comstud): filter_properties will also be used for
+            # weighing and I plan fold weighing into the host manager
+            # in a future patch.  I'll address the naming of this
+            # variable at that time.
             weighted_host = least_cost.weighted_sum(cost_functions,
-                    hosts, config_options)
+                    hosts, filter_properties)
             LOG.debug(_("Weighted %(weighted_host)s") % locals())
             selected_hosts.append(weighted_host)
 

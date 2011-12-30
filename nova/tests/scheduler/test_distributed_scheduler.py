@@ -300,4 +300,4 @@ class DistributedSchedulerTestCase(test.TestCase):
         hostinfo = host_manager.HostState('host', 'compute')
         hostinfo.update_from_compute_node(dict(memory_mb=1000,
                 local_gb=0))
-        self.assertEquals(1000 - 128, fn(hostinfo))
+        self.assertEquals(1000 - 128, fn(hostinfo, {}))
