@@ -170,7 +170,7 @@ class Scheduler(object):
     def update_service_capabilities(self, service_name, host, capabilities):
         """Process a capability update from a service node."""
         self.host_manager.update_service_capabilities(service_name,
-                host, capabilties)
+                host, capabilities)
 
     def poll_child_zones(self, context):
         """Poll child zones periodically to get status."""

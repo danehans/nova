@@ -199,7 +199,7 @@ class HostManager(object):
                 ret.append({"service": svc, "host_name": host})
         return ret
 
-    def get_service_capabilities(self, context):
+    def get_service_capabilities(self):
         """Roll up all the individual host info to generic 'service'
            capabilities. Each capability is aggregated into
            <cap>_min and <cap>_max values."""
