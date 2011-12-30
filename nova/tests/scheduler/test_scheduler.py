@@ -106,7 +106,7 @@ class SchedulerManagerTestCase(test.TestCase):
         result = self.manager.update_service_capabilities(self.context,
                 service_name=service_name, host=host)
         self.mox.VerifyAll()
-         
+
         self.mox.ResetAll()
         # Test capabilities passes correctly
         capabilities = {'fake_capability': 'fake_value'}
