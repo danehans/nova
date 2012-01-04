@@ -141,16 +141,17 @@ class VMOps(object):
 
         self._start(instance, vm_ref)
 
-    def finish_migration(self, context, migration, instance, disk_info,
-                         network_info, image_meta, resize_instance):
+    def finish_migration(self, context, migration, instance, instance_type,
+            disk_info, network_info, image_meta, resize_instance):
         vdi_uuid = self._move_disks(instance, disk_info)
 
         if resize_instance:
             self._resize_instance(instance, vdi_uuid)
 
         vm_ref = self._create_vm(context, instance,
-                                 [dict(vdi_type='os', vdi_uuid=vdi_uuid)],
-                                 network_info, image_meta)
+                instance_type,
+                [dict(vdi_type='os', vdi_uuid=vdi_uuid)], network_info,
+                image_meta)
 
         # 5. Start VM
         self._start(instance, vm_ref=vm_ref)
@@ -181,7 +182,8 @@ class VMOps(object):
 
         return vdis
 
-    def spawn(self, context, instance, image_meta, network_info):
+    def spawn(self, context, instance, instance_type, image_meta,
+            network_info, block_device_mapping):
         vdis = None
         try:
             # 1. Vanity Step
@@ -202,14 +204,14 @@ class VMOps(object):
                                            total_steps=BUILD_TOTAL_STEPS)
 
             # 3. Create the VM records
-            vm_ref = self._create_vm(context, instance, vdis, network_info,
-                                     image_meta)
+            vm_ref = self._create_vm(context, instance, instance_type,
+                    vdis, network_info, image_meta)
             self._update_instance_progress(context, instance,
                                            step=3,
                                            total_steps=BUILD_TOTAL_STEPS)
 
             # 4. Boot the Instance
-            self._spawn(instance, vm_ref)
+            self._spawn(instance, instance_type, vm_ref)
             self._update_instance_progress(context, instance,
                                            step=4,
                                            total_steps=BUILD_TOTAL_STEPS)
@@ -222,11 +224,14 @@ class VMOps(object):
             self._handle_spawn_error(vdis, spawn_error)
             raise spawn_error
 
-    def spawn_rescue(self, context, instance, image_meta, network_info):
+    def spawn_rescue(self, context, instance, instance_type, image_meta,
+            network_info):
         """Spawn a rescue instance."""
-        self.spawn(context, instance, image_meta, network_info)
+        self.spawn(context, instance, instance_type, image_meta,
+                network_info, None)
 
-    def _create_vm(self, context, instance, vdis, network_info, image_meta):
+    def _create_vm(self, context, instance, instance_type, vdis,
+            network_info, image_meta):
         """Create VM instance."""
         instance_name = instance.name
         vm_ref = VMHelper.lookup(self._session, instance_name)
@@ -279,7 +284,7 @@ class VMOps(object):
             vm_ref = VMHelper.create_vm(self._session, instance,
                     kernel and kernel.get('file', None) or None,
                     ramdisk and ramdisk.get('file', None) or None,
-                    use_pv_kernel)
+                    use_pv_kernel=use_pv_kernel)
         except (self.XenAPI.Failure, OSError, IOError) as vm_create_error:
             # Collect VDI/file resources to clean up;
             # These resources will be removed by _handle_spawn_error.
@@ -304,8 +309,8 @@ class VMOps(object):
             raise vm_create_error
 
         # Add disks to VM
-        self._attach_disks(instance, disk_image_type, vm_ref, first_vdi_ref,
-            vdis)
+        self._attach_disks(instance, instance_type, disk_image_type,
+                vm_ref, first_vdi_ref, vdis)
 
         # Alter the image before VM start for network injection.
         if FLAGS.flat_injected:
@@ -318,8 +323,8 @@ class VMOps(object):
 
         return vm_ref
 
-    def _attach_disks(self, instance, disk_image_type, vm_ref, first_vdi_ref,
-            vdis):
+    def _attach_disks(self, instance, instance_type, disk_image_type,
+            vm_ref, first_vdi_ref, vdis):
         ctx = nova_context.get_admin_context()
 
         instance_uuid = instance['uuid']
@@ -333,8 +338,8 @@ class VMOps(object):
                   "install")
 
             cd_vdi_ref = first_vdi_ref
-            first_vdi_ref = VMHelper.fetch_blank_disk(session=self._session,
-                        instance_type_id=instance.instance_type_id)
+            first_vdi_ref = VMHelper.fetch_blank_disk(self._session,
+                    instance_type['local_gb'])
 
             VolumeHelper.create_vbd(session=self._session, vm_ref=vm_ref,
                 vdi_ref=first_vdi_ref, userdevice=userdevice, bootable=False)
@@ -351,8 +356,6 @@ class VMOps(object):
                 LOG.debug(_("Auto configuring disk for instance"
                             " %(instance_uuid)s, attempting to"
                             " resize partition...") % locals())
-                instance_type = db.instance_type_get(ctx,
-                        instance.instance_type_id)
                 VMHelper.auto_configure_disk(session=self._session,
                                              vdi_ref=first_vdi_ref,
                                              new_gb=instance_type['local_gb'])
@@ -365,7 +368,6 @@ class VMOps(object):
             # userdevice 1 is reserved for rescue and we've used '0'
             userdevice = 2
 
-        instance_type = db.instance_type_get(ctx, instance.instance_type_id)
         swap_mb = instance_type['swap']
         generate_swap = swap_mb and FLAGS.xenapi_generate_swap
         if generate_swap:
@@ -385,7 +387,7 @@ class VMOps(object):
                     bootable=False)
             userdevice += 1
 
-    def _configure_instance(self, ctx, instance, vm_ref):
+    def _configure_instance(self, ctx, instance, instance_type, vm_ref):
         # Inject files, if necessary
         injected_files = instance.injected_files
         if injected_files:
@@ -414,14 +416,13 @@ class VMOps(object):
         self.reset_network(instance, vm_ref)
 
         # Set VCPU weight
-        inst_type = db.instance_type_get(ctx, instance.instance_type_id)
-        vcpu_weight = inst_type["vcpu_weight"]
+        vcpu_weight = instance_type["vcpu_weight"]
         if str(vcpu_weight) != "None":
             LOG.debug(_("Setting VCPU weight"))
             self._session.call_xenapi("VM.add_to_VCPUs_params", vm_ref,
                     "weight", vcpu_weight)
 
-    def _spawn(self, instance, vm_ref):
+    def _spawn(self, instance, instance_type, vm_ref):
         """Spawn a new instance."""
         LOG.debug(_('Starting VM %s...'), vm_ref)
         self._start(instance, vm_ref)
@@ -467,7 +468,7 @@ class VMOps(object):
             self.agent_update(instance, agent_build['url'],
                           agent_build['md5hash'])
 
-        self._configure_instance(ctx, instance, vm_ref)
+        self._configure_instance(ctx, instance, instance_type, vm_ref)
 
     def _handle_spawn_error(self, vdis, spawn_error):
         # Extract resource list from spawn_error.
@@ -704,8 +705,7 @@ class VMOps(object):
                 # 3. Copy VDI, resize partition and filesystem, forget VDI,
                 # truncate VHD
                 new_ref, new_uuid = VMHelper.resize_disk(self._session,
-                                                         vdi_ref,
-                                                         instance_type)
+                        vdi_ref, instance_type['local_gb'])
                 self._update_instance_progress(context, instance,
                                                step=3,
                                                total_steps=RESIZE_TOTAL_STEPS)
@@ -1153,7 +1153,8 @@ class VMOps(object):
                                          vm_ref, False, True)
         self._session.wait_for_task(task, instance['uuid'])
 
-    def rescue(self, context, instance, network_info, image_meta):
+    def rescue(self, context, instance, instance_type, network_info,
+            image_meta):
         """Rescue the specified instance.
 
             - shutdown the instance VM.
@@ -1171,7 +1172,8 @@ class VMOps(object):
         self._shutdown(instance, vm_ref)
         self._acquire_bootlock(vm_ref)
         instance._rescue = True
-        self.spawn_rescue(context, instance, image_meta, network_info)
+        self.spawn_rescue(context, instance, instance_type, image_meta,
+                network_info)
         rescue_vm_ref = VMHelper.lookup(self._session, instance.name)
         rescue_vbd_ref = self._find_rescue_vbd_ref(vm_ref, rescue_vm_ref)
 

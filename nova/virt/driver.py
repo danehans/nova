@@ -127,8 +127,8 @@ class ComputeDriver(object):
         # TODO(Vek): Need to pass context in for access to auth_token
         raise NotImplementedError()
 
-    def spawn(self, context, instance, image_meta,
-              network_info=None, block_device_info=None):
+    def spawn(self, context, instance, instance_type, image_meta,
+              network_info, block_device_info):
         """
         Create a new instance/VM/domain on the virtualization platform.
 
@@ -297,7 +297,8 @@ class ComputeDriver(object):
         # TODO(Vek): Need to pass context in for access to auth_token
         raise NotImplementedError()
 
-    def rescue(self, context, instance, network_info, image_meta):
+    def rescue(self, context, instance, instance_type, network_info,
+            image_meta):
         """Rescue the specified instance"""
         raise NotImplementedError()
 
@@ -327,7 +328,7 @@ class ComputeDriver(object):
         # TODO(Vek): Need to pass context in for access to auth_token
         raise NotImplementedError()
 
-    def live_migration(self, ctxt, instance_ref, dest,
+    def live_migration(self, ctxt, instance_ref, instance_type, dest,
                        post_method, recover_method):
         """Spawning live_migration operation for distributing high-load.
 

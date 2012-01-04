@@ -354,11 +354,9 @@ class ComputeManager(manager.SchedulerDependentManager):
             LOG.info(_("exception terminating the instance "
                      "%(instance_id)s") % locals())
 
-    def _run_instance(self, context, instance_uuid,
-                      requested_networks=None,
-                      injected_files=[],
-                      admin_password=None,
-                      **kwargs):
+    def _run_instance(self, context, instance_uuid, instance_type,
+            requested_networks=None, injected_files=[],
+            admin_password=None, **kwargs):
         """Launch a new instance with specified options."""
         context = context.elevated()
         try:
@@ -370,9 +368,9 @@ class ComputeManager(manager.SchedulerDependentManager):
                                                   requested_networks)
             try:
                 block_device_info = self._prep_block_device(context, instance)
-                instance = self._spawn(context, instance, image_meta,
-                                       network_info, block_device_info,
-                                       injected_files, admin_password)
+                instance = self._spawn(context, instance,
+                        instance_type, image_meta, network_info,
+                        block_device_info, injected_files, admin_password)
             except Exception:
                 with utils.save_and_reraise_exception():
                     self._deallocate_network(context, instance)
@@ -422,9 +420,7 @@ class ComputeManager(manager.SchedulerDependentManager):
             # TODO(jk0): Should size be required in the image service?
             return image_meta
 
-        instance_type_id = instance['instance_type_id']
-        instance_type = instance_types.get_instance_type(instance_type_id)
-        allowed_size_gb = instance_type['local_gb']
+        allowed_size_gb = instance['local_gb']
 
         # NOTE(jk0): Since libvirt uses local_gb as a secondary drive, we
         # need to handle potential situations where local_gb is 0. This is
@@ -504,8 +500,8 @@ class ComputeManager(manager.SchedulerDependentManager):
         instance['injected_files'] = injected_files
         instance['admin_pass'] = admin_pass
         try:
-            self.driver.spawn(context, instance, image_meta,
-                              network_info, block_device_info)
+            self.driver.spawn(context, instance, instance_type,
+                    image_meta, network_info, block_device_info)
         except Exception:
             msg = _("Instance %s failed to spawn")
             LOG.exception(msg % instance['uuid'])
@@ -558,19 +554,20 @@ class ComputeManager(manager.SchedulerDependentManager):
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
     @wrap_instance_fault
-    def run_instance(self, context, instance_uuid, **kwargs):
-        self._run_instance(context, instance_uuid, **kwargs)
+    def run_instance(self, context, instance_uuid, instance_type, **kwargs):
+        self._run_instance(context, instance_uuid, instance_type, **kwargs)
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
     @checks_instance_lock
     @wrap_instance_fault
-    def start_instance(self, context, instance_uuid):
+    def start_instance(self, context, instance_uuid, instance_type,
+            **kwargs):
         """Starting an instance on this host."""
         # TODO(yamahata): injected_files isn't supported.
         #                 Anyway OSAPI doesn't support stop/start yet
         # FIXME(vish): I've kept the files during stop instance, but
         #              I think start will fail due to the files still
-        self._run_instance(context, instance_uuid)
+        self._run_instance(context, instance_uuid, instance_type)
 
     def _shutdown_instance(self, context, instance, action_str, cleanup):
         """Shutdown an instance on this host."""
@@ -687,7 +684,8 @@ class ComputeManager(manager.SchedulerDependentManager):
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
     @checks_instance_lock
     @wrap_instance_fault
-    def rebuild_instance(self, context, instance_uuid, **kwargs):
+    def rebuild_instance(self, context, instance_uuid, instance_type,
+            **kwargs):
         """Destroy and re-make this instance.
 
         A 'rebuild' effectively purges all existing data from the system and
@@ -733,7 +731,7 @@ class ComputeManager(manager.SchedulerDependentManager):
 
         image_meta = _get_image_meta(context, instance['image_ref'])
 
-        self.driver.spawn(context, instance, image_meta,
+        self.driver.spawn(context, instance, instance_type, image_meta,
                           network_info, bd_mapping)
 
         current_power_state = self._get_power_state(context, instance)
@@ -986,7 +984,8 @@ class ComputeManager(manager.SchedulerDependentManager):
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
     @checks_instance_lock
     @wrap_instance_fault
-    def rescue_instance(self, context, instance_uuid, **kwargs):
+    def rescue_instance(self, context, instance_uuid, instance_type,
+            **kwargs):
         """
         Rescue an instance on this host.
         :param rescue_password: password to set on rescue instance
@@ -1001,7 +1000,8 @@ class ComputeManager(manager.SchedulerDependentManager):
         network_info = self._get_instance_nw_info(context, instance_ref)
         image_meta = _get_image_meta(context, instance_ref['image_ref'])
 
-        self.driver.rescue(context, instance_ref, network_info, image_meta)
+        self.driver.rescue(context, instance_ref, instance_type,
+                network_info, image_meta)
 
         current_power_state = self._get_power_state(context, instance_ref)
         self._instance_update(context,
@@ -1722,7 +1722,7 @@ class ComputeManager(manager.SchedulerDependentManager):
                                             instance_ref,
                                             disk)
 
-    def live_migration(self, context, instance_id,
+    def live_migration(self, context, instance_id, instance_type,
                        dest, block_migration=False):
         """Executing live migration.
 
@@ -1768,12 +1768,12 @@ class ComputeManager(manager.SchedulerDependentManager):
         # Executing live migration
         # live_migration might raises exceptions, but
         # nothing must be recovered in this version.
-        self.driver.live_migration(context, instance_ref, dest,
-                                   self.post_live_migration,
+        self.driver.live_migration(context, instance_ref, instance_type,
+                                   dest, self.post_live_migration,
                                    self.rollback_live_migration,
                                    block_migration)
 
-    def post_live_migration(self, ctxt, instance_ref,
+    def post_live_migration(self, ctxt, instance_ref, instance_type,
                             dest, block_migration=False):
         """Post operations for live migration.
 
@@ -1833,6 +1833,7 @@ class ComputeManager(manager.SchedulerDependentManager):
                  self.db.queue_get_for(ctxt, FLAGS.compute_topic, dest),
                      {"method": "post_live_migration_at_destination",
                       "args": {'instance_id': instance_ref.id,
+                               'instance_type': instance_type,
                                'block_migration': block_migration}})
 
         # Restore instance state
@@ -1867,7 +1868,7 @@ class ComputeManager(manager.SchedulerDependentManager):
                    "This error can be safely ignored."))
 
     def post_live_migration_at_destination(self, context,
-                                instance_id, block_migration=False):
+            instance_id, instance_type, block_migration=False):
         """Post operations for live migration .
 
         :param context: security context
@@ -1881,6 +1882,7 @@ class ComputeManager(manager.SchedulerDependentManager):
         network_info = self._get_instance_nw_info(context, instance_ref)
         self.driver.post_live_migration_at_destination(context,
                                                        instance_ref,
+                                                       instance_type,
                                                        network_info,
                                                        block_migration)
 

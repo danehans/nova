@@ -194,10 +194,11 @@ class XenAPIConnection(driver.ComputeDriver):
     def list_instances_detail(self):
         return self._vmops.list_instances_detail()
 
-    def spawn(self, context, instance, image_meta,
-              network_info=None, block_device_info=None):
+    def spawn(self, context, instance, instance_type, image_meta,
+            network_info, block_device_info):
         """Create VM instance"""
-        self._vmops.spawn(context, instance, image_meta, network_info)
+        self._vmops.spawn(context, instance, instance_type, image_meta,
+                network_info, block_device_info=block_device_info)
 
     def confirm_migration(self, migration, instance, network_info):
         """Confirms a resize, destroying the source VM"""
@@ -260,9 +261,11 @@ class XenAPIConnection(driver.ComputeDriver):
         """resume the specified instance"""
         self._vmops.resume(instance)
 
-    def rescue(self, context, instance, network_info, image_meta):
+    def rescue(self, context, instance, instance_type, network_info,
+            image_meta):
         """Rescue the specified instance"""
-        self._vmops.rescue(context, instance, network_info, image_meta)
+        self._vmops.rescue(context, instance, instance_type, network_info,
+                image_meta)
 
     def unrescue(self, instance, network_info):
         """Unrescue the specified instance"""
@@ -413,7 +416,7 @@ class XenAPIConnection(driver.ComputeDriver):
         """This method is supported only libvirt."""
         return
 
-    def live_migration(self, context, instance_ref, dest,
+    def live_migration(self, context, instance_ref, instance_type, dest,
                        post_method, recover_method, block_migration=False):
         """This method is supported only by libvirt."""
         return

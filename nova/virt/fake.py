@@ -101,8 +101,8 @@ class FakeConnection(driver.ComputeDriver):
         """Unplug VIFs from networks."""
         pass
 
-    def spawn(self, context, instance, image_meta,
-              network_info=None, block_device_info=None):
+    def spawn(self, context, instance, instance_type, image_meta,
+              network_info, block_device_info):
         name = instance.name
         state = power_state.RUNNING
         fake_instance = FakeInstance(name, state)
@@ -131,7 +131,8 @@ class FakeConnection(driver.ComputeDriver):
     def agent_update(self, instance, url, md5hash):
         pass
 
-    def rescue(self, context, instance, network_info, image_meta):
+    def rescue(self, context, instance, instance_type, network_info,
+            image_meta):
         pass
 
     def unrescue(self, instance, network_info):
@@ -288,7 +289,7 @@ class FakeConnection(driver.ComputeDriver):
         """This method is supported only by libvirt."""
         return
 
-    def live_migration(self, context, instance_ref, dest,
+    def live_migration(self, context, instance_ref, instance_type, dest,
                        post_method, recover_method, block_migration=False):
         """This method is supported only by libvirt."""
         return

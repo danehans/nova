@@ -54,7 +54,6 @@ from xml.etree import ElementTree
 
 from nova.auth import manager
 from nova import block_device
-from nova.compute import instance_types
 from nova.compute import power_state
 from nova import context as nova_context
 from nova import db
@@ -551,9 +550,9 @@ class LibvirtConnection(driver.ComputeDriver):
         """
 
         virt_dom = self._conn.lookupByName(instance['name'])
-        # NOTE(itoumsn): Use XML delived from the running instance
-        # instead of using to_xml(instance, network_info). This is almost
-        # the ultimate stupid workaround.
+        # NOTE(itoumsn): Use XML delivered from the running instance
+        # instead of using to_xml(instance, instance_type, network_info).
+        # This is almost the ultimate stupid workaround.
         if not xml:
             xml = virt_dom.XMLDesc(0)
 
@@ -612,7 +611,8 @@ class LibvirtConnection(driver.ComputeDriver):
         dom.create()
 
     @exception.wrap_exception()
-    def rescue(self, context, instance, network_info, image_meta):
+    def rescue(self, context, instance, instance_type, network_info,
+            image_meta):
         """Loads a VM using rescue images.
 
         A rescue is normally performed when something goes wrong with the
@@ -629,14 +629,16 @@ class LibvirtConnection(driver.ComputeDriver):
                                          'unrescue.xml')
         libvirt_utils.write_to_file(unrescue_xml_path, unrescue_xml)
 
-        xml = self.to_xml(instance, network_info, rescue=True)
+        xml = self.to_xml(instance, instance_type, network_info,
+                rescue=True)
         rescue_images = {
             'image_id': FLAGS.rescue_image_id or instance['image_ref'],
             'kernel_id': FLAGS.rescue_kernel_id or instance['kernel_id'],
             'ramdisk_id': FLAGS.rescue_ramdisk_id or instance['ramdisk_id'],
         }
-        self._create_image(context, instance, xml, '.rescue', rescue_images,
-                           network_info=network_info)
+        self._create_image(context, instance, instance_type, xml,
+                suffix='.rescue', disk_images=rescue_images,
+                network_info=network_info)
         self.reboot(instance, network_info, xml=xml)
 
     @exception.wrap_exception()
@@ -669,14 +671,15 @@ class LibvirtConnection(driver.ComputeDriver):
     # NOTE(ilyaalekseyev): Implementation like in multinics
     # for xenapi(tr3buchet)
     @exception.wrap_exception()
-    def spawn(self, context, instance, image_meta, network_info,
-              block_device_info=None):
-        xml = self.to_xml(instance, network_info, False,
-                          block_device_info=block_device_info)
+    def spawn(self, context, instance, instance_type, image_meta,
+            network_info, block_device_info):
+        xml = self.to_xml(instance, instance_type, network_info, False,
+                block_device_info=block_device_info)
         self.firewall_driver.setup_basic_filtering(instance, network_info)
         self.firewall_driver.prepare_instance_filter(instance, network_info)
-        self._create_image(context, instance, xml, network_info=network_info,
-                           block_device_info=block_device_info)
+        self._create_image(context, instance, instance_type, xml,
+                network_info=network_info,
+                block_device_info=block_device_info)
 
         domain = self._create_new_domain(xml)
         LOG.debug(_("instance %s: is running"), instance['name'])
@@ -852,9 +855,9 @@ class LibvirtConnection(driver.ComputeDriver):
         libvirt_utils.create_image('raw', target, '%dM' % swap_mb)
         libvirt_utils.mkfs(target, 'swap')
 
-    def _create_image(self, context, inst, libvirt_xml, suffix='',
-                      disk_images=None, network_info=None,
-                      block_device_info=None):
+    def _create_image(self, context, inst, instance_type, libvirt_xml,
+            suffix=None, disk_images=None, network_info=None,
+            block_device_info=None):
         if not suffix:
             suffix = ''
 
@@ -904,9 +907,7 @@ class LibvirtConnection(driver.ComputeDriver):
         root_fname = hashlib.sha1(str(disk_images['image_id'])).hexdigest()
         size = FLAGS.minimum_root_size
 
-        inst_type_id = inst['instance_type_id']
-        inst_type = instance_types.get_instance_type(inst_type_id)
-        if inst_type['name'] == 'm1.tiny' or suffix == '.rescue':
+        if instance_type['name'] == 'm1.tiny' or suffix == '.rescue':
             size = None
             root_fname += "_sm"
 
@@ -951,10 +952,10 @@ class LibvirtConnection(driver.ComputeDriver):
         swap = driver.block_device_info_get_swap(block_device_info)
         if driver.swap_is_usable(swap):
             swap_mb = swap['swap_size']
-        elif (inst_type['swap'] > 0 and
+        elif (instance_type['swap'] > 0 and
               not self._volume_in_mapping(self.default_swap_device,
                                           block_device_info)):
-            swap_mb = inst_type['swap']
+            swap_mb = instance_type['swap']
 
         if swap_mb > 0:
             self._cache_image(fn=self._create_swap,
@@ -1087,16 +1088,13 @@ class LibvirtConnection(driver.ComputeDriver):
         return block_device.strip_dev(mount_device) in block_device_list
 
     def _prepare_xml_info(self, instance, network_info, rescue,
-                          block_device_info=None):
+            instance_type, block_device_info=None):
         block_device_mapping = driver.block_device_info_get_mapping(
             block_device_info)
 
         nics = []
         for (network, mapping) in network_info:
             nics.append(self.vif_driver.plug(instance, network, mapping))
-        # FIXME(vish): stick this in db
-        inst_type_id = instance['instance_type_id']
-        inst_type = instance_types.get_instance_type(inst_type_id)
 
         if FLAGS.use_cow_images:
             driver_type = 'qcow2'
@@ -1135,7 +1133,7 @@ class LibvirtConnection(driver.ComputeDriver):
                     'basepath': os.path.join(FLAGS.instances_path,
                                              instance['name']),
                     'memory_kb': inst_type['memory_mb'] * 1024,
-                    'vcpus': inst_type['vcpus'],
+                    'vcpus': instance_type['vcpus'],
                     'rescue': rescue,
                     'disk_prefix': self._disk_prefix,
                     'driver_type': driver_type,
@@ -1169,7 +1167,7 @@ class LibvirtConnection(driver.ComputeDriver):
         if driver.swap_is_usable(swap):
             xml_info['swap_device'] = block_device.strip_dev(
                 swap['device_name'])
-        elif (inst_type['swap'] > 0 and
+        elif (instance_type['swap'] > 0 and
               not self._volume_in_mapping(self.default_swap_device,
                                           block_device_info)):
             xml_info['swap_device'] = self.default_swap_device
@@ -1194,12 +1192,12 @@ class LibvirtConnection(driver.ComputeDriver):
             xml_info['disk'] = xml_info['basepath'] + "/disk"
         return xml_info
 
-    def to_xml(self, instance, network_info, rescue=False,
+    def to_xml(self, instance, instance_type, network_info, rescue=False,
                block_device_info=None):
         # TODO(termie): cache?
         LOG.debug(_('instance %s: starting toXML method'), instance['name'])
         xml_info = self._prepare_xml_info(instance, network_info, rescue,
-                                          block_device_info)
+                instance_type, block_device_info=block_device_info)
         xml = str(Template(self.libvirt_xml, searchList=[xml_info]))
         LOG.debug(_('instance %s: finished toXML method'), instance['name'])
         return xml
@@ -1651,7 +1649,7 @@ class LibvirtConnection(driver.ComputeDriver):
                 raise exception.Error(msg % instance_ref.name)
             time.sleep(1)
 
-    def live_migration(self, ctxt, instance_ref, dest,
+    def live_migration(self, ctxt, instance_ref, instance_type, dest,
                        post_method, recover_method, block_migration=False):
         """Spawning live_migration operation for distributing high-load.
 
@@ -1671,11 +1669,12 @@ class LibvirtConnection(driver.ComputeDriver):
 
         """
 
-        greenthread.spawn(self._live_migration, ctxt, instance_ref, dest,
-                          post_method, recover_method, block_migration)
+        greenthread.spawn(self._live_migration, ctxt, instance_ref,
+                          instance_type, dest, post_method,
+                          recover_method, block_migration)
 
-    def _live_migration(self, ctxt, instance_ref, dest, post_method,
-                        recover_method, block_migration=False):
+    def _live_migration(self, ctxt, instance_ref, instance_type, dest,
+                        post_method, recover_method, block_migration=False):
         """Do live migration.
 
         :params ctxt: security context
@@ -1720,7 +1719,8 @@ class LibvirtConnection(driver.ComputeDriver):
                 self.get_info(instance_ref.name)['state']
             except exception.NotFound:
                 timer.stop()
-                post_method(ctxt, instance_ref, dest, block_migration)
+                post_method(ctxt, instance_ref, instance_type, dest,
+                        block_migration)
 
         timer.f = wait_for_live_migration
         timer.start(interval=0.5, now=True)
@@ -1808,6 +1808,7 @@ class LibvirtConnection(driver.ComputeDriver):
 
     def post_live_migration_at_destination(self, ctxt,
                                            instance_ref,
+                                           instance_type,
                                            network_info,
                                            block_migration):
         """Post operation of live migration at destination host.
@@ -1828,7 +1829,7 @@ class LibvirtConnection(driver.ComputeDriver):
             # In case of block migration, destination does not have
             # libvirt.xml
             if not os.path.isfile(xml_path):
-                xml = self.to_xml(instance_ref, network_info=network_info)
+                xml = self.to_xml(instance_ref, instance_type, network_info)
                 f = open(os.path.join(instance_dir, 'libvirt.xml'), 'w+')
                 f.write(xml)
                 f.close()

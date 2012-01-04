@@ -38,7 +38,6 @@ from nova import flags
 from nova.image import glance
 from nova import log as logging
 from nova import utils
-from nova.compute import instance_types
 from nova.compute import power_state
 from nova.virt.disk import api as disk
 from nova.virt.xenapi import HelperBase
@@ -113,7 +112,7 @@ class VMHelper(HelperBase):
 
     @classmethod
     def create_vm(cls, session, instance, kernel, ramdisk,
-                  use_pv_kernel=False):
+            use_pv_kernel=False):
         """Create a VM record.  Returns a Deferred that gives the new
         VM reference.
         the use_pv_kernel flag indicates whether the guest is HVM or PV
@@ -126,10 +125,8 @@ class VMHelper(HelperBase):
 
             3. Using hardware virtualization
         """
-        inst_type_id = instance.instance_type_id
-        instance_type = instance_types.get_instance_type(inst_type_id)
-        mem = str(long(instance_type['memory_mb']) * 1024 * 1024)
-        vcpus = str(instance_type['vcpus'])
+        mem = str(long(instance['memory_mb']) * 1024 * 1024)
+        vcpus = str(instance['vcpus'])
 
         rec = {
             'actions_after_crash': 'destroy',
@@ -194,9 +191,7 @@ class VMHelper(HelperBase):
 
     @classmethod
     def ensure_free_mem(cls, session, instance):
-        inst_type_id = instance.instance_type_id
-        instance_type = instance_types.get_instance_type(inst_type_id)
-        mem = long(instance_type['memory_mb']) * 1024 * 1024
+        mem = long(instance['memory_mb']) * 1024 * 1024
         #get free memory from host
         host = session.get_xenapi_host()
         host_free_mem = long(session.call_xenapi("host.compute_free_memory",
@@ -382,7 +377,7 @@ class VMHelper(HelperBase):
         session.wait_for_task(task, instance['uuid'])
 
     @classmethod
-    def resize_disk(cls, session, vdi_ref, instance_type):
+    def resize_disk(cls, session, vdi_ref, local_gb):
         # Copy VDI over to something we can resize
         # NOTE(jerdfelt): Would be nice to just set vdi_ref to read/write
         sr_ref = cls.safe_find_sr(session)
@@ -393,11 +388,10 @@ class VMHelper(HelperBase):
             # Resize partition and filesystem down
             cls.auto_configure_disk(session=session,
                                     vdi_ref=copy_ref,
-                                    new_gb=instance_type['local_gb'])
+                                    new_gb=local_gb)
 
             # Create new VDI
-            new_ref = cls.fetch_blank_disk(session,
-                                           instance_type['id'])
+            new_ref = cls.fetch_blank_disk(session, local_gb)
             new_uuid = session.call_xenapi('VDI.get_uuid', new_ref)
 
             # Manually copy contents over
@@ -487,15 +481,13 @@ class VMHelper(HelperBase):
                 cls.destroy_vdi(session, vdi_ref)
 
     @classmethod
-    def fetch_blank_disk(cls, session, instance_type_id):
+    def fetch_blank_disk(cls, session, local_gb):
         # Size the blank harddrive to suit the machine type:
         one_gig = 1024 * 1024 * 1024
-        req_type = instance_types.get_instance_type(instance_type_id)
-        req_size = req_type['local_gb']
 
-        LOG.debug("Creating blank HD of size %(req_size)d gigs"
+        LOG.debug("Creating blank HD of size %(local_gb)d gigs"
                     % locals())
-        vdi_size = one_gig * req_size
+        vdi_size = one_gig * local_gb
 
         LOG.debug("ISO vm create: Looking for the SR")
         sr_ref = cls.safe_find_sr(session)
@@ -505,7 +497,7 @@ class VMHelper(HelperBase):
 
     @classmethod
     def fetch_image(cls, context, session, instance, image, user_id,
-                    project_id, image_type):
+            project_id, image_type):
         """Fetch image from glance based on image type.
 
         Returns: A single filename if image_type is KERNEL or RAMDISK
@@ -520,7 +512,7 @@ class VMHelper(HelperBase):
 
     @classmethod
     def _fetch_image_glance_vhd(cls, context, session, instance, image,
-                                image_type):
+            image_type):
         """Tell glance to download an image and put the VHDs into the SR
 
         Returns: A list of dictionaries that describe VDIs
@@ -567,7 +559,7 @@ class VMHelper(HelperBase):
         primary_name_label = instance.name
         session.call_xenapi("VDI.set_name_label", vdi_ref, primary_name_label)
 
-        cls._check_vdi_size(context, session, instance, os_vdi_uuid)
+        cls._check_vdi_size(context, session, os_vdi_uuid, instance)
         return vdis
 
     @classmethod
@@ -588,14 +580,12 @@ class VMHelper(HelperBase):
         return size_bytes
 
     @classmethod
-    def _check_vdi_size(cls, context, session, instance, vdi_uuid):
+    def _check_vdi_size(cls, context, session, vdi_uuid, instance):
         size_bytes = cls._get_vdi_chain_size(context, session, vdi_uuid)
 
         # FIXME(jk0): this was copied directly from compute.manager.py, let's
         # refactor this to a common area
-        instance_type_id = instance['instance_type_id']
-        instance_type = instance_types.get_instance_type(instance_type_id)
-        allowed_size_gb = instance_type['local_gb']
+        allowed_size_gb = instance['local_gb']
         allowed_size_bytes = allowed_size_gb * 1024 * 1024 * 1024
 
         LOG.debug(_("image_size_bytes=%(size_bytes)d, allowed_size_bytes="
@@ -610,7 +600,7 @@ class VMHelper(HelperBase):
 
     @classmethod
     def _fetch_image_glance_disk(cls, context, session, instance, image,
-                                 image_type):
+            image_type):
         """Fetch the image from Glance
 
         NOTE:
