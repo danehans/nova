@@ -870,9 +870,6 @@ class API(base.Base):
         """Start an instance."""
         vm_state = instance["vm_state"]
         instance_uuid = instance["uuid"]
-        instance_type_id = instance["instance_type_id"]
-        instance_type = self.get_instance_type(context,
-                instance['instance_type_id'])
         LOG.debug(_("Going to try to start %s"), instance_uuid)
 
         if vm_state != vm_states.STOPPED:
@@ -893,7 +890,7 @@ class API(base.Base):
                  {"method": "start_instance",
                   "args": {"topic": FLAGS.compute_topic,
                            "instance_uuid": instance_uuid,
-                           "instance_type": instance_type}})
+                           "instance_type": instance['instance_type']}})
 
     def get_active_by_window(self, context, begin, end=None, project_id=None):
         """Get instances that were continuously active over a window."""
@@ -1441,9 +1438,6 @@ class API(base.Base):
     @scheduler_api.reroute_compute("rescue")
     def rescue(self, context, instance, rescue_password=None):
         """Rescue the given instance."""
-
-        instance_type = self.get_instance_type(context,
-                instance['instance_type_id'])
         self.update(context,
                     instance,
                     vm_state=vm_states.ACTIVE,
@@ -1451,7 +1445,7 @@ class API(base.Base):
 
         rescue_params = {
             "rescue_password": rescue_password,
-            "instance_type": instance_type
+            "instance_type": instance['instance_type'],
         }
         self._cast_compute_message('rescue_instance', context,
                                    instance['uuid'],
