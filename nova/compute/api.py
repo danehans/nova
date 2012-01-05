@@ -1207,9 +1207,6 @@ class API(base.Base):
         metadata = kwargs.get('metadata', {})
         self._check_metadata_properties_quota(context, metadata)
 
-        instance_type = self.get_instance_type(context,
-                instance['instance_type_id'])
-
         self.update(context,
                     instance,
                     image_ref=image_href,
@@ -1221,7 +1218,7 @@ class API(base.Base):
         rebuild_params = {
             "new_pass": admin_password,
             "injected_files": files_to_inject,
-            "instance_type": instance_type,
+            "instance_type": instance['instance_type']
         }
 
         self._cast_compute_message('rebuild_instance',

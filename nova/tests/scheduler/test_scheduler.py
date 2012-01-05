@@ -26,21 +26,22 @@ import stubout
 from novaclient import v1_1 as novaclient
 from novaclient import exceptions as novaclient_exceptions
 
+from nova.compute import instance_types
+from nova.compute import power_state
+from nova.compute import task_states
+from nova.compute import vm_states
 from nova import context
 from nova import db
 from nova import exception
 from nova import flags
-from nova import service
-from nova import test
-from nova import rpc
-from nova import utils
 from nova.scheduler import api
 from nova.scheduler import driver
 from nova.scheduler import manager
-from nova.scheduler.simple import SimpleScheduler
-from nova.compute import power_state
-from nova.compute import task_states
-from nova.compute import vm_states
+from nova.scheduler import simple
+from nova import rpc
+from nova import service
+from nova import test
+from nova import utils
 
 FLAGS = flags.FLAGS
 flags.DECLARE('max_cores', 'nova.scheduler.simple')
@@ -91,12 +92,17 @@ def _create_instance(**kwargs):
     return db.instance_create(ctxt, _create_instance_dict(**kwargs))
 
 
+def _get_instance_type(instance):
+    return instance_types.get_instance_type(instance['instance_type_id'])
+
+
 def _create_instance_from_spec(spec):
     return _create_instance(**spec['instance_properties'])
 
 
 def _create_request_spec(**kwargs):
-    return dict(instance_properties=_create_instance_dict(**kwargs))
+    return dict(instance_properties=_create_instance_dict(**kwargs),
+            instance_type=instance_types.get_instance_type(1))
 
 
 def _fake_cast_to_compute_host(context, host, method, **kwargs):
@@ -367,7 +373,7 @@ class SimpleDriverTestCase(test.TestCase):
         ctxt = context.RequestContext('fake', 'fake', is_admin=False)
         global instance_uuids
         instance_uuids = []
-        self.stubs.Set(SimpleScheduler,
+        self.stubs.Set(simple.SimpleScheduler,
                 'create_instance_db_entry', _fake_create_instance_db_entry)
         self.stubs.Set(driver,
                 'cast_to_compute_host', _fake_cast_to_compute_host)
@@ -433,10 +439,12 @@ class SimpleDriverTestCase(test.TestCase):
         global instance_uuids
         instance_uuids = []
         instance = _create_instance()
+        instance_type = _get_instance_type(instance)
         instance_uuids.append(instance['uuid'])
-        compute1.run_instance(self.context, instance_uuids[0])
+        compute1.run_instance(self.context, instance_uuids[0],
+                instance_type)
 
-        self.stubs.Set(SimpleScheduler,
+        self.stubs.Set(simple.SimpleScheduler,
                 'create_instance_db_entry', _fake_create_instance_db_entry)
         global _picked_host
         _picked_host = None
@@ -473,10 +481,12 @@ class SimpleDriverTestCase(test.TestCase):
         global instance_uuids
         instance_uuids = []
         instance = _create_instance()
+        instance_type = _get_instance_type(instance)
         instance_uuids.append(instance['uuid'])
-        compute1.run_instance(self.context, instance_uuids[0])
+        compute1.run_instance(self.context, instance_uuids[0],
+                instance_type)
 
-        self.stubs.Set(SimpleScheduler,
+        self.stubs.Set(simple.SimpleScheduler,
                 'create_instance_db_entry', _fake_create_instance_db_entry)
         global _picked_host
         _picked_host = None
@@ -507,7 +517,7 @@ class SimpleDriverTestCase(test.TestCase):
 
         global instance_uuids
         instance_uuids = []
-        self.stubs.Set(SimpleScheduler,
+        self.stubs.Set(simple.SimpleScheduler,
                 'create_instance_db_entry', _fake_create_instance_db_entry)
         global _picked_host
         _picked_host = None
@@ -532,7 +542,7 @@ class SimpleDriverTestCase(test.TestCase):
 
         global instance_uuids
         instance_uuids = []
-        self.stubs.Set(SimpleScheduler,
+        self.stubs.Set(simple.SimpleScheduler,
                 'create_instance_db_entry', _fake_create_instance_db_entry)
         global _picked_host
         _picked_host = None
@@ -564,10 +574,12 @@ class SimpleDriverTestCase(test.TestCase):
         global instance_uuids
         instance_uuids = []
         instance = _create_instance()
+        instance_type = _get_instance_type(instance)
         instance_uuids.append(instance['uuid'])
-        compute1.run_instance(self.context, instance_uuids[0])
+        compute1.run_instance(self.context, instance_uuids[0],
+                instance_type)
 
-        self.stubs.Set(SimpleScheduler,
+        self.stubs.Set(simple.SimpleScheduler,
                 'create_instance_db_entry', _fake_create_instance_db_entry)
         global _picked_host
         _picked_host = None
@@ -634,10 +646,14 @@ class SimpleDriverTestCase(test.TestCase):
         instance_uuids2 = []
         for index in xrange(FLAGS.max_cores):
             instance = _create_instance()
-            compute1.run_instance(self.context, instance['uuid'])
+            instance_type = _get_instance_type(instance)
+            compute1.run_instance(self.context, instance['uuid'],
+                    instance_type)
             instance_uuids1.append(instance['uuid'])
             instance = _create_instance()
-            compute2.run_instance(self.context, instance['uuid'])
+            instance_type = _get_instance_type(instance)
+            compute2.run_instance(self.context, instance['uuid'],
+                    instance_type)
             instance_uuids2.append(instance['uuid'])
         request_spec = _create_request_spec()
         self.assertRaises(exception.NoValidHost,
@@ -708,10 +724,12 @@ class SimpleDriverTestCase(test.TestCase):
         global instance_uuids
         instance_uuids = []
         instance = _create_instance()
+        instance_type = _get_instance_type(instance)
         instance_uuids.append(instance['uuid'])
-        compute1.run_instance(self.context, instance_uuids[0])
+        compute1.run_instance(self.context, instance_uuids[0],
+                instance_type)
 
-        self.stubs.Set(SimpleScheduler,
+        self.stubs.Set(simple.SimpleScheduler,
                 'create_instance_db_entry', _fake_create_instance_db_entry)
         global _picked_host
         _picked_host = None
@@ -736,10 +754,12 @@ class SimpleDriverTestCase(test.TestCase):
         global instance_uuids
         instance_uuids = []
         instance = _create_instance()
+        instance_type = _get_instance_type(instance)
         instance_uuids.append(instance['uuid'])
-        compute1.run_instance(self.context, instance_uuids[0])
+        compute1.run_instance(self.context, instance_uuids[0],
+                instance_type)
 
-        self.stubs.Set(SimpleScheduler,
+        self.stubs.Set(simple.SimpleScheduler,
                 'create_instance_db_entry', _fake_create_instance_db_entry)
         global _picked_host
         _picked_host = None
@@ -777,7 +797,7 @@ class SimpleDriverTestCase(test.TestCase):
 
         global instance_uuids
         instance_uuids = []
-        self.stubs.Set(SimpleScheduler,
+        self.stubs.Set(simple.SimpleScheduler,
                 'create_instance_db_entry', _fake_create_instance_db_entry)
         global _picked_host
         _picked_host = None
@@ -799,16 +819,20 @@ class SimpleDriverTestCase(test.TestCase):
         instance_uuids2 = []
         for index in xrange(FLAGS.max_cores):
             instance = _create_instance()
-            compute1.run_instance(self.context, instance['uuid'])
+            instance_type = _get_instance_type(instance)
+            compute1.run_instance(self.context, instance['uuid'],
+                    instance_type)
             instance_uuids1.append(instance['uuid'])
             instance = _create_instance()
-            compute2.run_instance(self.context, instance['uuid'])
+            instance_type = _get_instance_type(instance)
+            compute2.run_instance(self.context, instance['uuid'],
+                    instance_type)
             instance_uuids2.append(instance['uuid'])
 
         def _create_instance_db_entry(simple_self, context, request_spec):
             self.fail(_("Shouldn't try to create DB entry when at "
                     "max cores"))
-        self.stubs.Set(SimpleScheduler,
+        self.stubs.Set(simple.SimpleScheduler,
                 'create_instance_db_entry', _create_instance_db_entry)
 
         global _picked_host
