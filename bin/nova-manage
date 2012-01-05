@@ -980,7 +980,6 @@ class VmCommands(object):
         instance_type = instance_types.get_instance_type(
                 instance['instance_type_id'])
 
-
         if (FLAGS.connection_type != 'libvirt' or
            (FLAGS.connection_type == 'libvirt' and
             FLAGS.libvirt_type not in ['kvm', 'qemu'])):

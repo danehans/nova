@@ -453,7 +453,7 @@ class XenAPIVMTestCase(test.TestCase):
     def test_spawn_not_enough_memory(self):
         self.assertRaises(exception.InsufficientFreeMemory,
                           self._test_spawn,
-                          1, 2, 3, instance_type_id=4) # m1.xlarge
+                          1, 2, 3, instance_type_id=4)  # m1.xlarge
 
     def test_spawn_fail_cleanup_1(self):
         """Simulates an error while downloading an image.

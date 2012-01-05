@@ -910,7 +910,7 @@ class ComputeTestCase(BaseTestCase):
                           self.context,
                           instance_uuid,
                           instance_type)
-                        
+
         instance = db.instance_get_by_uuid(context.get_admin_context(),
                                            instance_uuid)
         self.assertEqual(vm_states.ERROR, instance['vm_state'])
