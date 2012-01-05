@@ -170,6 +170,9 @@ class BaseTestCase(test.TestCase):
         inst.update(params)
         return db.instance_type_create(context, inst)['id']
 
+    def _get_instance_type(self, instance):
+        return instance_types.get_instance_type(instance['instance_type_id'])
+
     def _create_group(self):
         values = {'name': 'testgroup',
                   'description': 'testgroup',
@@ -225,9 +228,11 @@ class ComputeTestCase(BaseTestCase):
 
         instance = self._create_fake_instance(
                         params={'config_drive': '1234', })
+        instance_type = self._get_instance_type(instance)
 
         try:
-            self.compute.run_instance(self.context, instance['uuid'])
+            self.compute.run_instance(self.context, instance['uuid'],
+                    instance_type)
             instances = db.instance_get_all(context.get_admin_context())
             instance = instances[0]
 

@@ -374,7 +374,8 @@ class ComputeManager(manager.SchedulerDependentManager):
             except Exception:
                 with utils.save_and_reraise_exception():
                     self._deallocate_network(context, instance)
-            self._notify_about_instance_usage(instance)
+            self._notify_about_instance_usage(instance,
+                    instance_type=instance_type)
             if self._is_instance_terminated(instance_uuid):
                 raise exception.InstanceNotFound
         except exception.InstanceNotFound:
@@ -514,8 +515,9 @@ class ComputeManager(manager.SchedulerDependentManager):
                                      task_state=None,
                                      launched_at=utils.utcnow())
 
-    def _notify_about_instance_usage(self, instance):
-        usage_info = utils.usage_from_instance(instance)
+    def _notify_about_instance_usage(self, instance, instance_type=None):
+        usage_info = utils.usage_from_instance(instance,
+                instance_type=instance_type)
         notifier.notify('compute.%s' % self.host,
                         'compute.instance.create',
                         notifier.INFO, usage_info)
@@ -742,7 +744,8 @@ class ComputeManager(manager.SchedulerDependentManager):
                               task_state=None,
                               launched_at=utils.utcnow())
 
-        usage_info = utils.usage_from_instance(instance)
+        usage_info = utils.usage_from_instance(instance,
+                instance_type=instance_type)
         notifier.notify('compute.%s' % self.host,
                             'compute.instance.rebuild',
                             notifier.INFO,
@@ -1103,7 +1106,8 @@ class ComputeManager(manager.SchedulerDependentManager):
         self.driver.finish_revert_migration(instance_ref)
         self.db.migration_update(context, migration_id,
                 {'status': 'reverted'})
-        usage_info = utils.usage_from_instance(instance_ref)
+        usage_info = utils.usage_from_instance(instance_ref,
+                instance_type=instance_type)
         notifier.notify('compute.%s' % self.host,
                             'compute.instance.resize.revert',
                             notifier.INFO,
@@ -1154,8 +1158,9 @@ class ComputeManager(manager.SchedulerDependentManager):
                           'migration_id': migration_ref['id']}})
 
         usage_info = utils.usage_from_instance(instance_ref,
-                              new_instance_type=new_instance_type['name'],
-                              new_instance_type_id=new_instance_type['id'])
+                instance_type=old_instance_type,
+                new_instance_type=new_instance_type['name'],
+                new_instance_type_id=new_instance_type['id'])
         notifier.notify('compute.%s' % self.host,
                             'compute.instance.resize.prep',
                             notifier.INFO,
