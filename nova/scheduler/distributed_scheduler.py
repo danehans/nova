@@ -171,7 +171,10 @@ class DistributedScheduler(driver.Scheduler):
         """Create the requested resource in this Zone."""
         instance = self.create_instance_db_entry(context, request_spec)
         driver.cast_to_compute_host(context, weighted_host.host,
-                'run_instance', instance_uuid=instance['uuid'], **kwargs)
+                'run_instance',
+                instance_uuid=instance['uuid'],
+                instance_type=request_spec['instance_type'],
+                **kwargs)
         inst = driver.encode_instance(instance, local=True)
         # So if another instance is created, create_instance_db_entry will
         # actually create a new entry, instead of assume it's been created

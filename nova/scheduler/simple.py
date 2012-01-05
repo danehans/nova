@@ -80,7 +80,9 @@ class SimpleScheduler(chance.ChanceScheduler):
             instance_ref = self.create_instance_db_entry(context,
                     request_spec)
             driver.cast_to_compute_host(context, host, 'run_instance',
-                    instance_uuid=instance_ref['uuid'], **_kwargs)
+                    instance_uuid=instance_ref['uuid'],
+                    instance_type=request_spec['instance_type'],
+                    **_kwargs)
             instances.append(driver.encode_instance(instance_ref))
             # So if we loop around, create_instance_db_entry will actually
             # create a new entry, instead of assume it's been created
