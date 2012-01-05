@@ -47,7 +47,7 @@ import nova.context
 from nova.compute import instance_types
 from nova.compute import power_state
 from nova.compute import task_states
-from nova.compute.utils import notify_usage_exists
+from nova.compute import utils as compute_utils
 from nova.compute import vm_states
 from nova import exception
 from nova import flags
@@ -638,7 +638,7 @@ class ComputeManager(manager.SchedulerDependentManager):
         """Terminate an instance on this host."""
         elevated = context.elevated()
         instance = self.db.instance_get_by_uuid(elevated, instance_uuid)
-        notify_usage_exists(instance, current_period=True)
+        compute_utils.notify_usage_exists(instance, current_period=True)
         self._delete_instance(context, instance)
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())

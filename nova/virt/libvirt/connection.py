@@ -1087,8 +1087,8 @@ class LibvirtConnection(driver.ComputeDriver):
         LOG.debug(_("block_device_list %s"), block_device_list)
         return block_device.strip_dev(mount_device) in block_device_list
 
-    def _prepare_xml_info(self, instance, network_info, rescue,
-            instance_type, block_device_info=None):
+    def _prepare_xml_info(self, instance, instance_type, network_info,
+            rescue, block_device_info=None):
         block_device_mapping = driver.block_device_info_get_mapping(
             block_device_info)
 
@@ -1132,7 +1132,7 @@ class LibvirtConnection(driver.ComputeDriver):
                     'name': instance['name'],
                     'basepath': os.path.join(FLAGS.instances_path,
                                              instance['name']),
-                    'memory_kb': inst_type['memory_mb'] * 1024,
+                    'memory_kb': instance_type['memory_mb'] * 1024,
                     'vcpus': instance_type['vcpus'],
                     'rescue': rescue,
                     'disk_prefix': self._disk_prefix,
@@ -1196,8 +1196,8 @@ class LibvirtConnection(driver.ComputeDriver):
                block_device_info=None):
         # TODO(termie): cache?
         LOG.debug(_('instance %s: starting toXML method'), instance['name'])
-        xml_info = self._prepare_xml_info(instance, network_info, rescue,
-                instance_type, block_device_info=block_device_info)
+        xml_info = self._prepare_xml_info(instance, instance_type,
+                network_info, rescue, block_device_info=block_device_info)
         xml = str(Template(self.libvirt_xml, searchList=[xml_info]))
         LOG.debug(_('instance %s: finished toXML method'), instance['name'])
         return xml

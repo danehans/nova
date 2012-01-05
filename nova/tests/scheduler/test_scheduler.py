@@ -20,9 +20,9 @@ Tests For Scheduler
 """
 
 import datetime
-import mox
 import stubout
 
+import mox
 from novaclient import v1_1 as novaclient
 from novaclient import exceptions as novaclient_exceptions
 

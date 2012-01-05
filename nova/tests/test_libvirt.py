@@ -15,17 +15,21 @@
 #    under the License.
 
 import copy
-import eventlet
-import mox
 import os
 import re
 import shutil
 import sys
 import tempfile
 
+import eventlet
+import mox
 from xml.etree.ElementTree import fromstring as xml_to_tree
 from xml.dom.minidom import parseString as xml_to_dom
 
+from nova.api.ec2 import cloud
+from nova.compute import instance_types
+from nova.compute import power_state
+from nova.compute import vm_states
 from nova import context
 from nova import db
 from nova import exception
@@ -33,9 +37,6 @@ from nova import flags
 from nova import log as logging
 from nova import test
 from nova import utils
-from nova.api.ec2 import cloud
-from nova.compute import power_state
-from nova.compute import vm_states
 from nova.virt.disk import api as disk
 from nova.virt import images
 from nova.virt import driver
@@ -344,13 +345,17 @@ class LibvirtConnTestCase(test.TestCase):
     def test_preparing_xml_info(self):
         conn = connection.LibvirtConnection(True)
         instance_ref = db.instance_create(self.context, self.test_instance)
+        instance_type = instance_types.get_instance_type(
+                instance_ref['instance_type_id'])
 
         result = conn._prepare_xml_info(instance_ref,
+                                        instance_type,
                                         _fake_network_info(self.stubs, 1),
                                         False)
         self.assertTrue(len(result['nics']) == 1)
 
         result = conn._prepare_xml_info(instance_ref,
+                                        instance_type,
                                         _fake_network_info(self.stubs, 2),
                                         False)
         self.assertTrue(len(result['nics']) == 2)
@@ -555,7 +560,9 @@ class LibvirtConnTestCase(test.TestCase):
         network_info = _fake_network_info(self.stubs, 2)
         conn = connection.LibvirtConnection(True)
         instance_ref = db.instance_create(self.context, instance_data)
-        xml = conn.to_xml(instance_ref, network_info, False)
+        instance_type = instance_types.get_instance_type(
+                instance_ref['instance_type_id'])
+        xml = conn.to_xml(instance_ref, instance_type, network_info, False)
         tree = xml_to_tree(xml)
         interfaces = tree.findall("./devices/interface")
         self.assertEquals(len(interfaces), 2)
@@ -570,6 +577,8 @@ class LibvirtConnTestCase(test.TestCase):
         user_context = context.RequestContext(self.user_id,
                                               self.project_id)
         instance_ref = db.instance_create(user_context, instance)
+        instance_type = instance_types.get_instance_type(
+                instance_ref['instance_type_id'])
 
         self.flags(libvirt_type='lxc')
         conn = connection.LibvirtConnection(True)
@@ -577,7 +586,7 @@ class LibvirtConnTestCase(test.TestCase):
         self.assertEquals(conn.uri, 'lxc:///')
 
         network_info = _fake_network_info(self.stubs, 1)
-        xml = conn.to_xml(instance_ref, network_info)
+        xml = conn.to_xml(instance_ref, instance_type, network_info)
         tree = xml_to_tree(xml)
 
         check = [
@@ -597,6 +606,8 @@ class LibvirtConnTestCase(test.TestCase):
         user_context = context.RequestContext(self.user_id,
                                               self.project_id)
         instance_ref = db.instance_create(user_context, instance)
+        instance_type = instance_types.get_instance_type(
+                instance_ref['instance_type_id'])
 
         type_disk_map = {
             'qemu': [
@@ -618,7 +629,7 @@ class LibvirtConnTestCase(test.TestCase):
             conn = connection.LibvirtConnection(True)
 
             network_info = _fake_network_info(self.stubs, 1)
-            xml = conn.to_xml(instance_ref, network_info)
+            xml = conn.to_xml(instance_ref, instance_type, network_info)
             tree = xml_to_tree(xml)
 
             for i, (check, expected_result) in enumerate(checks):
@@ -631,6 +642,8 @@ class LibvirtConnTestCase(test.TestCase):
                            rescue=False):
         user_context = context.RequestContext(self.user_id, self.project_id)
         instance_ref = db.instance_create(user_context, instance)
+        instance_type = instance_types.get_instance_type(
+                instance_ref['instance_type_id'])
         network_ref = db.project_get_networks(context.get_admin_context(),
                                              self.project_id)[0]
 
@@ -708,7 +721,8 @@ class LibvirtConnTestCase(test.TestCase):
             self.assertEquals(conn.uri, expected_uri)
 
             network_info = _fake_network_info(self.stubs, 1)
-            xml = conn.to_xml(instance_ref, network_info, rescue)
+            xml = conn.to_xml(instance_ref, instance_type, network_info,
+                    rescue)
             tree = xml_to_tree(xml)
             for i, (check, expected_result) in enumerate(checks):
                 self.assertEqual(check(tree),
