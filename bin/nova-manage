@@ -977,8 +977,6 @@ class VmCommands(object):
         ctxt = context.get_admin_context()
         instance_id = ec2utils.ec2_id_to_id(ec2_id)
         instance = db.instance_get(instance_id)
-        instance_type = instance_types.get_instance_type(
-                instance['instance_type_id'])
 
         if (FLAGS.connection_type != 'libvirt' or
            (FLAGS.connection_type == 'libvirt' and
@@ -994,7 +992,7 @@ class VmCommands(object):
                  FLAGS.scheduler_topic,
                  {"method": "live_migration",
                   "args": {"instance_id": instance_id,
-                           "instance_type": instance_type,
+                           "instance_type": instance['instance_type'],
                            "dest": dest,
                            "topic": FLAGS.compute_topic,
                            "block_migration": block_migration}})
