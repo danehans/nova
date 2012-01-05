@@ -255,8 +255,9 @@ class ComputeDriver(object):
         """
         raise NotImplementedError()
 
-    def finish_migration(self, context, migration, instance, disk_info,
-                         network_info, image_meta, resize_instance):
+    def finish_migration(self, context, migration, instance,
+            instance_type, disk_info, network_info, image_meta,
+            resize_instance):
         """Completes a resize, turning on the migrated instance
 
         :param network_info:

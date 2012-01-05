@@ -119,9 +119,8 @@ def stubout_create_vm(stubs):
     """Simulates a failure in create_vm."""
 
     @classmethod
-    def f(cls, *args):
-        raise fake.Failure("Test Exception raised by " +
-                           "fake create_vm")
+    def f(cls, *args, **kwargs):
+        raise fake.Failure("Test Exception raised by fake create_vm")
     stubs.Set(vm_utils.VMHelper, 'create_vm', f)
 
 
@@ -206,7 +205,8 @@ def stub_out_vm_methods(stubs):
     def fake_release_bootlock(self, vm):
         pass
 
-    def fake_spawn_rescue(self, context, inst, network_info, image_meta):
+    def fake_spawn_rescue(self, context, inst, instance_type,
+            network_info, image_meta):
         inst._rescue = False
 
     stubs.Set(vmops.VMOps, "_shutdown", fake_shutdown)

@@ -101,8 +101,8 @@ class VMWareAPIVMTestCase(test.TestCase):
         """Create and spawn the VM."""
         self._create_instance_in_the_db()
         self.type_data = db.instance_type_get_by_name(None, 'm1.large')
-        self.conn.spawn(self.context, self.instance, self.image,
-                        self.network_info)
+        self.conn.spawn(self.context, self.instance,
+                self.type_data, self.image, self.network_info, {})
         self._check_vm_record()
 
     def _check_vm_record(self):

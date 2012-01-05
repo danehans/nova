@@ -98,14 +98,17 @@ class XenAPIVolumeTestCase(test.TestCase):
         db_fakes.stub_out_db_instance_api(self.stubs)
         stubs.stub_out_get_target(self.stubs)
         xenapi_fake.reset()
+        instance_type = instance_types.get_instance_type(5)
         self.instance_values = {'id': 1,
                   'project_id': self.user_id,
                   'user_id': 'fake',
                   'image_ref': 1,
                   'kernel_id': 2,
                   'ramdisk_id': 3,
-                  'local_gb': 20,
-                  'instance_type_id': '3',  # m1.large
+                  'vcpus': instance_type['vcpus'],
+                  'memory_mb': instance_type['memory_mb'],
+                  'local_gb': instance_type['local_gb'],
+                  'instance_type_id': instance_type['id'],
                   'os_type': 'linux',
                   'architecture': 'x86-64'}
 
@@ -304,9 +307,9 @@ class XenAPIVMTestCase(test.TestCase):
         self.vm_info = vm_info
         self.vm = vm
 
-    def check_vm_record(self, conn, check_injection=False):
+    def check_vm_record(self, conn, instance, check_injection=False):
         # Check that m1.large above turned into the right thing.
-        instance_type = db.instance_type_get_by_name(conn, 'm1.large')
+        instance_type = instance['instance_type']
         mem_kib = long(instance_type['memory_mb']) << 10
         mem_bytes = str(mem_kib << 10)
         vcpus = instance_type['vcpus']
@@ -389,20 +392,25 @@ class XenAPIVMTestCase(test.TestCase):
                 self.fail('Found unexpected VDI:%s' % vdi_ref)
 
     def _test_spawn(self, image_ref, kernel_id, ramdisk_id,
-                    instance_type_id="3", os_type="linux",
-                    hostname="test", architecture="x86-64", instance_id=1,
-                    check_injection=False,
-                    create_record=True, empty_dns=False):
+                    instance_type_id=3,
+                    os_type="linux", hostname="test",
+                    architecture="x86-64", instance_id=1,
+                    check_injection=False, create_record=True,
+                    empty_dns=False):
         stubs.stubout_loopingcall_start(self.stubs)
         if create_record:
+            instance_type = instance_types.get_instance_type(
+                    instance_type_id)
             instance_values = {'id': instance_id,
                       'project_id': self.project_id,
                       'user_id': self.user_id,
                       'image_ref': image_ref,
                       'kernel_id': kernel_id,
                       'ramdisk_id': ramdisk_id,
-                      'local_gb': 20,
-                      'instance_type_id': instance_type_id,
+                      'vcpus': instance_type['vcpus'],
+                      'memory_mb': instance_type['memory_mb'],
+                      'local_gb': instance_type['local_gb'],
+                      'instance_type_id': instance_type['id'],
                       'os_type': os_type,
                       'hostname': hostname,
                       'architecture': architecture}
@@ -428,9 +436,10 @@ class XenAPIVMTestCase(test.TestCase):
 
         image_meta = {'id': glance_stubs.FakeGlance.IMAGE_VHD,
                       'disk_format': 'vhd'}
-        self.conn.spawn(self.context, instance, image_meta, network_info)
+        self.conn.spawn(self.context, instance, instance['instance_type'],
+                image_meta, network_info, {})
         self.create_vm_record(self.conn, os_type, instance_id)
-        self.check_vm_record(self.conn, check_injection)
+        self.check_vm_record(self.conn, instance, check_injection)
         self.assertTrue(instance.os_type)
         self.assertTrue(instance.architecture)
 
@@ -444,7 +453,7 @@ class XenAPIVMTestCase(test.TestCase):
     def test_spawn_not_enough_memory(self):
         self.assertRaises(exception.InsufficientFreeMemory,
                           self._test_spawn,
-                          1, 2, 3, "4")  # m1.xlarge
+                          1, 2, 3, instance_type_id=4) # m1.xlarge
 
     def test_spawn_fail_cleanup_1(self):
         """Simulates an error while downloading an image.
@@ -644,7 +653,8 @@ class XenAPIVMTestCase(test.TestCase):
     def test_rescue(self):
         instance = self._create_instance()
         conn = xenapi_conn.get_connection(False)
-        conn.rescue(self.context, instance, [], None)
+        conn.rescue(self.context, instance, instance['instance_type'],
+                [], None)
 
     def test_unrescue(self):
         instance = self._create_instance()
@@ -673,6 +683,7 @@ class XenAPIVMTestCase(test.TestCase):
     def _create_instance(self, instance_id=1, spawn=True):
         """Creates and spawns a test instance."""
         stubs.stubout_loopingcall_start(self.stubs)
+        instance_type = instance_types.get_instance_type(5)
         instance_values = {
             'id': instance_id,
             'project_id': self.project_id,
@@ -680,8 +691,10 @@ class XenAPIVMTestCase(test.TestCase):
             'image_ref': 1,
             'kernel_id': 2,
             'ramdisk_id': 3,
-            'local_gb': 20,
-            'instance_type_id': '3',  # m1.large
+            'vcpus': instance_type['vcpus'],
+            'memory_mb': instance_type['memory_mb'],
+            'local_gb': instance_type['local_gb'],
+            'instance_type_id': instance_type['id'],
             'os_type': 'linux',
             'architecture': 'x86-64'}
         instance = db.instance_create(self.context, instance_values)
@@ -702,7 +715,9 @@ class XenAPIVMTestCase(test.TestCase):
         image_meta = {'id': glance_stubs.FakeGlance.IMAGE_VHD,
                       'disk_format': 'vhd'}
         if spawn:
-            self.conn.spawn(self.context, instance, image_meta, network_info)
+            self.conn.spawn(self.context, instance,
+                    instance['instance_type'], image_meta,
+                    network_info, {})
         return instance
 
 
@@ -764,14 +779,17 @@ class XenAPIMigrateInstance(test.TestCase):
         self.user_id = 'fake'
         self.project_id = 'fake'
         self.context = context.RequestContext(self.user_id, self.project_id)
+        instance_type = instance_types.get_instance_type(5)
         self.instance_values = {'id': 1,
                   'project_id': self.project_id,
                   'user_id': self.user_id,
                   'image_ref': 1,
                   'kernel_id': None,
                   'ramdisk_id': None,
-                  'local_gb': 5,
-                  'instance_type_id': '3',  # m1.large
+                  'vcpus': instance_type['vcpus'],
+                  'memory_mb': instance_type['memory_mb'],
+                  'local_gb': instance_type['local_gb'],
+                  'instance_type_id': instance_type['id'],
                   'os_type': 'linux',
                   'architecture': 'x86-64'}
 
@@ -871,8 +889,9 @@ class XenAPIMigrateInstance(test.TestCase):
                            'rxtx_cap': 3})]
         image_meta = {'id': instance.image_ref, 'disk_format': 'vhd'}
         conn.finish_migration(self.context, self.migration, instance,
-                              dict(base_copy='hurr', cow='durr'),
-                              network_info, image_meta, resize_instance=True)
+                instance['instance_type'],
+                dict(base_copy='hurr', cow='durr'),
+                network_info, image_meta, resize_instance=True)
         self.assertEqual(self.called, True)
         self.assertEqual(self.fake_vm_start_called, True)
 
@@ -913,8 +932,9 @@ class XenAPIMigrateInstance(test.TestCase):
                            'rxtx_cap': 3})]
         image_meta = {'id': instance.image_ref, 'disk_format': 'vhd'}
         conn.finish_migration(self.context, self.migration, instance,
-                              dict(base_copy='hurr', cow='durr'),
-                              network_info, image_meta, resize_instance=True)
+                instance['instance_type'],
+                dict(base_copy='hurr', cow='durr'),
+                network_info, image_meta, resize_instance=True)
         self.assertEqual(self.called, True)
         self.assertEqual(self.fake_vm_start_called, True)
 
@@ -949,8 +969,9 @@ class XenAPIMigrateInstance(test.TestCase):
                            'rxtx_cap': 3})]
         image_meta = {'id': instance.image_ref, 'disk_format': 'vhd'}
         conn.finish_migration(self.context, self.migration, instance,
-                              dict(base_copy='hurr', cow='durr'),
-                              network_info, image_meta, resize_instance=True)
+                instance['instance_type'],
+                dict(base_copy='hurr', cow='durr'),
+                network_info, image_meta, resize_instance=True)
 
     def test_finish_migrate_no_resize_vdi(self):
         instance = db.instance_create(self.context, self.instance_values)
@@ -981,8 +1002,9 @@ class XenAPIMigrateInstance(test.TestCase):
         # Resize instance would be determined by the compute call
         image_meta = {'id': instance.image_ref, 'disk_format': 'vhd'}
         conn.finish_migration(self.context, self.migration, instance,
-                              dict(base_copy='hurr', cow='durr'),
-                              network_info, image_meta, resize_instance=False)
+                instance['instance_type'],
+                dict(base_copy='hurr', cow='durr'),
+                network_info, image_meta, resize_instance=False)
 
 
 class XenAPIImageTypeTestCase(test.TestCase):
@@ -1146,14 +1168,17 @@ class XenAPIAutoDiskConfigTestCase(test.TestCase):
         self.user_id = 'fake'
         self.project_id = 'fake'
 
+        instance_type = instance_types.get_instance_type(5)
         self.instance_values = {'id': 1,
                   'project_id': self.project_id,
                   'user_id': self.user_id,
                   'image_ref': 1,
                   'kernel_id': 2,
                   'ramdisk_id': 3,
-                  'local_gb': 20,
-                  'instance_type_id': '3',  # m1.large
+                  'vcpus': instance_type['vcpus'],
+                  'memory_mb': instance_type['memory_mb'],
+                  'local_gb': instance_type['local_gb'],
+                  'instance_type_id': instance_type['id'],
                   'os_type': 'linux',
                   'architecture': 'x86-64'}
 
@@ -1177,13 +1202,14 @@ class XenAPIAutoDiskConfigTestCase(test.TestCase):
                        fake_resize_part_and_fs)
 
         instance = db.instance_create(self.context, self.instance_values)
+        instance_type = instance['instance_type']
         disk_image_type = vm_utils.ImageType.DISK_VHD
         vm_ref = "blah"
         first_vdi_ref = "blah"
         vdis = ["blah"]
 
-        self.conn._vmops._attach_disks(
-            instance, disk_image_type, vm_ref, first_vdi_ref, vdis)
+        self.conn._vmops._attach_disks(instance, instance_type,
+                disk_image_type, vm_ref, first_vdi_ref, vdis)
 
         self.assertEqual(marker["partition_called"], called)
 
