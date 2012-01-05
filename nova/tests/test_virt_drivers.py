@@ -63,9 +63,9 @@ class _VirtDriverTestCase(test.TestCase):
         instance_ref = test_utils.get_test_instance()
         network_info = test_utils.get_test_network_info()
         image_info = test_utils.get_test_image_info(None, instance_ref)
-        self.connection.spawn(self.ctxt, instance=instance_ref,
-                              image_meta=image_info,
-                              network_info=network_info)
+        self.connection.spawn(self.ctxt, instance_ref,
+                              instance_ref['instance_type'],
+                              image_info, network_info, {})
         return instance_ref, network_info
 
     @catch_notimplementederror
@@ -145,7 +145,8 @@ class _VirtDriverTestCase(test.TestCase):
     @catch_notimplementederror
     def test_rescue(self):
         instance_ref, network_info = self._get_running_instance()
-        self.connection.rescue(self.ctxt, instance_ref, network_info, None)
+        self.connection.rescue(self.ctxt, instance_ref,
+                instance_ref['instance_type'], network_info, None)
 
     @catch_notimplementederror
     def test_unrescue_unrescued_instance(self):
@@ -155,7 +156,8 @@ class _VirtDriverTestCase(test.TestCase):
     @catch_notimplementederror
     def test_unrescue_rescued_instance(self):
         instance_ref, network_info = self._get_running_instance()
-        self.connection.rescue(self.ctxt, instance_ref, network_info, None)
+        self.connection.rescue(self.ctxt, instance_ref,
+                instance_ref['instance_type'], network_info, None)
         self.connection.unrescue(instance_ref, network_info)
 
     @catch_notimplementederror
@@ -370,7 +372,9 @@ class _VirtDriverTestCase(test.TestCase):
     @catch_notimplementederror
     def test_live_migration(self):
         instance_ref, network_info = self._get_running_instance()
-        self.connection.live_migration(self.ctxt, instance_ref, 'otherhost',
+        self.connection.live_migration(self.ctxt, instance_ref,
+                                       instance_ref['instance_type'],
+                                       'otherhost',
                                        None, None)
 
     @catch_notimplementederror
