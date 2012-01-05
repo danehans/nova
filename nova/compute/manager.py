@@ -492,8 +492,8 @@ class ComputeManager(manager.SchedulerDependentManager):
                 'ephemerals': ephemerals,
                 'block_device_mapping': block_device_mapping}
 
-    def _spawn(self, context, instance, image_meta, network_info,
-               block_device_info, injected_files, admin_pass):
+    def _spawn(self, context, instance, instance_type, image_meta,
+            network_info, block_device_info, injected_files, admin_pass):
         """Spawn an instance with error logging and update its power state"""
         self._instance_update(context, instance['uuid'],
                               vm_state=vm_states.BUILDING,

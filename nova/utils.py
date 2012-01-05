@@ -401,22 +401,23 @@ def usage_from_instance(instance_ref, instance_type=None, **kw):
             instance_ref['image_ref'])
 
     usage_info = dict(
-          tenant_id=instance_ref['project_id'],
-          user_id=instance_ref['user_id'],
-          instance_id=instance_ref['uuid'],
-          display_name=instance_ref['display_name'],
-          created_at=str(instance_ref['created_at']),
-          launched_at=str(instance_ref['launched_at']) \
-                      if instance_ref['launched_at'] else '',
-          image_ref_url=image_ref_url,
-          state=instance_ref['vm_state'],
-          state_description=instance_ref['task_state'] \
-                             if instance_ref['task_state'] else '',
-          fixed_ips=[a.address for a in instance_ref['fixed_ips']])
+        tenant_id=instance_ref['project_id'],
+        user_id=instance_ref['user_id'],
+        instance_id=instance_ref['uuid'],
+        display_name=instance_ref['display_name'],
+        created_at=str(instance_ref['created_at']),
+        launched_at=str(instance_ref['launched_at']) \
+                if instance_ref['launched_at'] else '',
+                        image_ref_url=image_ref_url,
+        state=instance_ref['vm_state'],
+        state_description=instance_ref['task_state'] \
+                if instance_ref['task_state'] else '',
+                        fixed_ips=[a.address
+                                for a in instance_ref['fixed_ips']])
 
     if instance_type:
-          usage_info['instance_type'] = instance_type['name'],
-          usage_info['instance_type_id'] = instance_type['id'],
+        usage_info['instance_type'] = instance_type['name']
+        usage_info['instance_type_id'] = instance_type['id']
 
     usage_info.update(kw)
     return usage_info
