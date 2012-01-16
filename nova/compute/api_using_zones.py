@@ -94,7 +94,7 @@ class APIUsingZones(compute_api.API):
 
         min_count = 1
 
-        (instances, reservation_id) = self._create_instance(
+        return self._create_instance(
                 context, instance_type,
                 image_href, kernel_id, ramdisk_id,
                 min_count, max_count,
@@ -106,6 +106,7 @@ class APIUsingZones(compute_api.API):
                 requested_networks, config_drive,
                 block_device_mapping, auto_disk_config,
                 create_instance_here=True)
+              
 
     @check_instance_state(vm_state=[vm_states.ACTIVE, vm_states.SHUTOFF,
                                     vm_states.ERROR])
