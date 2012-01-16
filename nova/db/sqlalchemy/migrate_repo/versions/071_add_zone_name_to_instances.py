@@ -16,15 +16,16 @@ from sqlalchemy import *
 
 meta = MetaData()
 
-instances = Table('instances', meta, autoload=True)
-zone_name = Column('zone_name', String(255))
-
 
 def upgrade(migrate_engine):
     meta.bind = migrate_engine
+    instances = Table('instances', meta, autoload=True)
+    zone_name = Column('zone_name', String(255))
     instances.create_column(zone_name)
 
 
 def downgrade(migrate_engine):
     meta.bind = migrate_engine
+    instances = Table('instances', meta, autoload=True)
+    zone_name = Column('zone_name', String(255))
     instances.drop_column(zone_name)
