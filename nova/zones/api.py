@@ -81,7 +81,7 @@ def instance_update(context, instance):
         update_info[key] = instance[key]
 
     # FIXME: encode created_at/updated_at
-    message = {'method': 'instance_update':
+    message = {'method': 'instance_update',
                'args': {'instance_uuid': instance['uuid'],
                         'update_info': update_info,
                         'source_zone': FLAGS.zone_name}}
@@ -90,7 +90,7 @@ def instance_update(context, instance):
 
 def instance_destroy(context, instance):
     # FIXME: encode deleted_at
-    message = {'method': 'instance_destroy':
+    message = {'method': 'instance_destroy',
                'args': {'instance_uuid': instance['uuid'],
                         'source_zone': FLAGS.zone_name}}
     rpc.cast(context, FLAGS.zones_topic, message)

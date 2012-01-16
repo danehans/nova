@@ -17,7 +17,7 @@
 Base Zones Driver
 """
 
-from nova import datetime
+import datetime
 
 from nova.db import base
 from nova import exception
@@ -31,9 +31,9 @@ FLAGS = flags.FLAGS
 flags.DECLARE('zone_db_check_interval', 'nova.scheduler.zone_manager')
 
 
-class BaseZoneInfo(object, zone_name, is_me=False):
+class BaseZoneInfo(object):
     """Holds information ior a particular zone."""
-    def __init__(self):
+    def __init__(self, zone_name, is_me=False):
         self.name = zone_name
         self.is_me = is_me
         self.last_seen = datetime.datetime.min
@@ -120,7 +120,7 @@ class BaseZonesDriver(base.Base):
         my_zone_parts = self.my_zone_info.zone_name.split('.')
         my_zone_parts_len = len(my_zone_parts)
         dest_zone_parts = zone_name.split('.')
-        dest_zone_parts_len = len(dest_zone_parts
+        dest_zone_parts_len = len(dest_zone_parts)
         if dest_zone_parts_len == my_zone_parts_len:
             # Inconsistency since we're at the same hop level and the
             # message didn't match our name
@@ -140,8 +140,8 @@ class BaseZonesDriver(base.Base):
             # The first part of the destination name should at least be
             # consistent with us
             if dest_zone_parts != my_zone_parts[:dest_zone_parts_len]:
-                msg = ("Destination zone '%(zone_name)s' has less hops
-                        than me, but doesn't have a common prefix" %
+                msg = ("Destination zone '%(zone_name)s' has less hops "
+                        "than me, but doesn't have a common prefix" %
                         locals())
                 raise exception.ZoneRoutingInconsistency(reason=msg)
             zone_info = None
