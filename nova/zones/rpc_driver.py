@@ -14,35 +14,21 @@
 #    under the License.
 
 """
-Zones Service
+Zones RPC Driver
 """
 
-import functools
-
-from nova.compute import vm_states
-from nova import db
-from nova import exception
 from nova import flags
 from nova import log as logging
-from nova import manager
-from nova import rpc
-from nova import utils
 
 LOG = logging.getLogger('nova.zones.manager')
 FLAGS = flags.FLAGS
-flags.DEFINE_string('zones_driver',
-                    'nova.zones.rpc_driver.ZonesRPCDriver',
-                    'Zones driver to use')
 
 
-class ZonesManager(manager.Manager):
-    """Handles zone communication."""
+class ZonesRPCDriver(object):
+    """Handles zone communication via RPC."""
 
-    def __init__(self, zones_driver=None, *args, **kwargs):
-        if not zones_driver:
-            zones_driver = FLAGS.zones_driver
-        self.driver = utils.import_object(zones_driver)
-        super(ZonesManager, self).__init__(*args, **kwargs)
+    def __init__(self):
+        super(ZonesRPCDriver, self).__init__()
 
     def call_zone(zone_name, method, *args, **kwargs):
-        self.driver.call_zone(zone_name, method, *args, **kwargs)
+        pass

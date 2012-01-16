@@ -135,6 +135,34 @@ def notify(context, topic, msg):
     return _get_impl().notify(context, topic, msg)
 
 
+def cast_to_zone(context, rabbit_params, msg):
+    """Invoke a remote method that does not return anything.
+
+    :param context: Information that identifies the user that has made this
+                    request.
+    :param rabbit_params: The rabbit connection information for a zone
+    :param msg: This is a dict in the form { "method" : "method_to_invoke",
+                                             "args" : dict_of_kwargs }
+
+    :returns: None
+    """
+    return _get_impl().cast_to_zone(context, rabbit_params, msg)
+
+
+def broadcast_to_zone(context, rabbit_params, msg):
+    """Broadcast a remote method that does not return anything.
+
+    :param context: Information that identifies the user that has made this
+                    request.
+    :param rabbit_params: The rabbit connection information for a zone
+    :param msg: This is a dict in the form { "method" : "method_to_invoke",
+                                             "args" : dict_of_kwargs }
+
+    :returns: None
+    """
+    return _get_impl().broadcast_to_zone(context, topic, msg)
+
+
 _RPCIMPL = None
 
 

@@ -312,15 +312,18 @@ class NotifyPublisher(TopicPublisher):
 class Connection(object):
     """Connection object."""
 
-    def __init__(self):
+    def __init__(self, **kwargs):
         self.consumers = []
         self.consumer_thread = None
-        self.max_retries = FLAGS.rabbit_max_retries
+        self.max_retries = (kwargs.get('max_retries') or
+                FLAGS.rabbit_max_retries)
         # Try forever?
         if self.max_retries <= 0:
             self.max_retries = None
-        self.interval_start = FLAGS.rabbit_retry_interval
-        self.interval_stepping = FLAGS.rabbit_retry_backoff
+        self.interval_start = (kwargs.get('retry_interval') or
+                FLAGS.rabbit_retry_interval)
+        self.interval_stepping = (kwargs.get('retry_backoff') or
+                FLAGS.rabbit_retry_backoff)
         # max retry-interval = 30 seconds
         self.interval_max = 30
         self.memory_transport = False
@@ -330,6 +333,9 @@ class Connection(object):
                           userid=FLAGS.rabbit_userid,
                           password=FLAGS.rabbit_password,
                           virtual_host=FLAGS.rabbit_virtual_host)
+        for key in self.params.keys():
+            self.params[key] = kwargs.get(key) or self.params[key]
+
         if FLAGS.fake_rabbit:
             self.params['transport'] = 'memory'
             self.memory_transport = True
@@ -616,13 +622,13 @@ class ConnectionContext(rpc_common.Connection):
     the pool.
     """
 
-    def __init__(self, pooled=True):
+    def __init__(self, pooled=True, **kwargs):
         """Create a new connection, or get one from the pool"""
         self.connection = None
         if pooled:
             self.connection = ConnectionPool.get()
         else:
-            self.connection = Connection()
+            self.connection = Connection(**kwargs)
         self.pooled = pooled
 
     def __enter__(self):
@@ -901,3 +907,13 @@ def msg_reply(msg_id, reply=None, failure=None, ending=False):
         if ending:
             msg['ending'] = True
         conn.direct_send(msg_id, msg)
+
+def cast_to_zone(context, rabbit_params, msg):
+    _pack_context(msg, context)
+    with ConnectionContext(pooled=False, **rabbit_params) as conn:
+        conn.topic_send(FLAGS.zones_topic, msg)
+
+def broadcast_to_zone(context, rabbit_params, msg):
+    _pack_context(msg, context)
+    with ConnectionContext(pooled=False, **rabbit_params) as conn:
+        conn.fanout_send(FLAGS.zones_topic, msg)
