@@ -576,6 +576,11 @@ def instance_destroy(context, instance_id):
     return IMPL.instance_destroy(context, instance_id)
 
 
+def instance_destroy_by_uuid(context, instance_uuid):
+    """Destroy the instance or raise if it does not exist."""
+    return IMPL.instance_destroy_by_uuid(context, instance_uuid)
+
+
 def instance_stop(context, instance_id):
     """Stop the instance or raise if it does not exist."""
     return IMPL.instance_stop(context, instance_id)

@@ -27,8 +27,6 @@ import kombu.entity
 import kombu.messaging
 import kombu.connection
 
-from nova import context
-from nova import exception
 from nova import flags
 from nova.rpc import common as rpc_common
 from nova.rpc import amqp as rpc_amqp
@@ -310,7 +308,7 @@ class NotifyPublisher(TopicPublisher):
 class Connection(object):
     """Connection object."""
 
-    def __init__(self):
+    def __init__(self, server_params=None):
         self.consumers = []
         self.consumer_thread = None
         self.max_retries = FLAGS.rabbit_max_retries
@@ -323,11 +321,23 @@ class Connection(object):
         self.interval_max = 30
         self.memory_transport = False
 
-        self.params = dict(hostname=FLAGS.rabbit_host,
-                          port=FLAGS.rabbit_port,
-                          userid=FLAGS.rabbit_userid,
-                          password=FLAGS.rabbit_password,
-                          virtual_host=FLAGS.rabbit_virtual_host)
+        if server_params is None:
+            server_params = {}
+
+        default_params = dict(hostname=FLAGS.rabbit_host,
+                port=FLAGS.rabbit_port,
+                userid=FLAGS.rabbit_userid,
+                password=FLAGS.rabbit_password,
+                virtual_host=FLAGS.rabbit_virtual_host)
+
+        self.params = {}
+        for key in default_params.keys():
+            if key is 'userid':
+                pkey = 'username'
+            else:
+                pkey = key
+            self.params[key] = server_params.get(pkey) or default_params[key]
+
         if FLAGS.fake_rabbit:
             self.params['transport'] = 'memory'
             self.memory_transport = True
@@ -619,6 +629,16 @@ def cast(context, topic, msg):
 def fanout_cast(context, topic, msg):
     """Sends a message on a fanout exchange without waiting for a response."""
     return rpc_amqp.fanout_cast(context, topic, msg)
+
+
+def cast_to_server(context, server_params, topic, msg):
+    """Sends a message on a topic to a specific server."""
+    return rpc_amqp.cast_to_server(context, server_params, topic, msg)
+
+
+def fanout_cast_to_server(context, server_params, topic, msg):
+    """Sends a message on a fanout exchange to a specific server."""
+    return rpc_amqp.cast_to_zone(context, server_params, topic, msg)
 
 
 def notify(context, topic, msg):

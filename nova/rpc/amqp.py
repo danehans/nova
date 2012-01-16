@@ -72,13 +72,13 @@ class ConnectionContext(rpc_common.Connection):
     _connection_pool = Pool(max_size=FLAGS.rpc_conn_pool_size,
                             order_as_stack=True)
 
-    def __init__(self, pooled=True):
+    def __init__(self, pooled=True, server_params=None):
         """Create a new connection, or get one from the pool"""
         self.connection = None
         if pooled:
             self.connection = self._connection_pool.get()
         else:
-            self.connection = ConnectionClass()
+            self.connection = ConnectionClass(server_params=server_params)
         self.pooled = pooled
 
     def __enter__(self):
@@ -350,6 +350,22 @@ def fanout_cast(context, topic, msg):
     LOG.debug(_('Making asynchronous fanout cast...'))
     pack_context(msg, context)
     with ConnectionContext() as conn:
+        conn.fanout_send(topic, msg)
+
+
+def cast_to_server(context, server_params, topic, msg):
+    """Sends a message on a topic to a specific server."""
+    pack_context(msg, context)
+    with ConnectionContext(pooled=False,
+            server_params=server_params) as conn:
+        conn.topic_send(topic, msg)
+
+
+def fanout_cast_to_server(context, server_params, topic, msg):
+    """Sends a message on a fanout exchange to a specific server."""
+    pack_context(msg, context)
+    with ConnectionContext(pooled=False,
+            server_params=server_params) as conn:
         conn.fanout_send(topic, msg)
 
 

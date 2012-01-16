@@ -45,6 +45,7 @@ from nova.virt.xenapi import firewall
 from nova.virt.xenapi import network_utils
 from nova.virt.xenapi import vm_utils
 from nova.virt.xenapi import volume_utils
+from nova.zones import api as zones_api
 
 
 VolumeHelper = volume_utils.VolumeHelper
@@ -703,7 +704,9 @@ class VMOps(object):
         instance_uuid = instance['uuid']
         LOG.debug(_("Updating instance '%(instance_uuid)s' progress to"
                     " %(progress)d") % locals())
-        db.instance_update(context, instance_uuid, {'progress': progress})
+        rv = db.instance_update(context, instance_uuid,
+                {'progress': progress})
+        zones_api.instance_update(context, rv)
 
     def migrate_disk_and_power_off(self, context, instance, dest,
                                    instance_type):

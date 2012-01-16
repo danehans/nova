@@ -1,8 +1,4 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
-# Copyright 2010 United States Government as represented by the
-# Administrator of the National Aeronautics and Space Administration.
-# All Rights Reserved.
+# Copyright 2012 OpenStack LLC.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -16,10 +12,20 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from nova.compute.api import AggregateAPI
-from nova import flags
-from nova import utils as nova_utils
+from sqlalchemy import *
 
-FLAGS = flags.FLAGS
+meta = MetaData()
 
-API = nova_utils.import_class(FLAGS.compute_api_class)
+
+def upgrade(migrate_engine):
+    meta.bind = migrate_engine
+    instances = Table('instances', meta, autoload=True)
+    zone_name = Column('zone_name', String(255))
+    instances.create_column(zone_name)
+
+
+def downgrade(migrate_engine):
+    meta.bind = migrate_engine
+    instances = Table('instances', meta, autoload=True)
+    zone_name = Column('zone_name', String(255))
+    instances.drop_column(zone_name)

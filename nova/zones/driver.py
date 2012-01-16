@@ -1,7 +1,4 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
-# Copyright 2010 United States Government as represented by the
-# Administrator of the National Aeronautics and Space Administration.
+# Copyright (c) 2012 Openstack, LLC.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -16,10 +13,21 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from nova.compute.api import AggregateAPI
-from nova import flags
-from nova import utils as nova_utils
+"""
+Base Zones Driver
+"""
 
+from nova.db import base
+from nova import flags
+from nova import log as logging
+
+LOG = logging.getLogger('nova.zones.driver')
 FLAGS = flags.FLAGS
 
-API = nova_utils.import_class(FLAGS.compute_api_class)
+
+class BaseZonesDriver(base.Base):
+    """The base class for zones communication."""
+
+    def __init__(self, manager):
+        super(BaseZonesDriver, self).__init__()
+        self.manager = manager

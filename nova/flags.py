@@ -445,6 +445,15 @@ global_opts = [
     cfg.ListOpt('isolated_hosts',
                 default=[],
                 help='Host reserved for specific images'),
+    cfg.StrOpt('zones_topic',
+                default='zones',
+                help='the topic zones nodes listen on'),
+    cfg.StrOpt('zones_manager',
+                default='nova.zones.manager.ZonesManager',
+                help='Manager for zones'),
+    cfg.StrOpt('compute_api_class',
+                default='nova.compute.api.API',
+                help='The compute API class to use')
     ]
 
 FLAGS.register_opts(global_opts)

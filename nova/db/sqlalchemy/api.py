@@ -1357,8 +1357,8 @@ def instance_create(context, values):
     values['metadata'] = _metadata_refs(values.get('metadata'),
                                         models.InstanceMetadata)
     instance_ref = models.Instance()
-    instance_ref['uuid'] = str(utils.gen_uuid())
-
+    if not values.get('uuid'):
+        values['uuid'] = str(utils.gen_uuid())
     instance_ref.update(values)
 
     session = get_session()
@@ -1411,6 +1411,37 @@ def instance_destroy(context, instance_id):
                         'updated_at': literal_column('updated_at')})
 
         instance_info_cache_delete(context, instance_ref['uuid'],
+                                   session=session)
+
+
+@require_context
+def instance_destroy_by_uuid(context, instance_uuid):
+    session = get_session()
+    with session.begin():
+        instance_ref = instance_get_by_uuid(context, instance_uuid,
+                session=session)
+        instance_id = instance_ref['id']
+        session.query(models.Instance).\
+                filter_by(uuid=instance_uuid).\
+                update({'deleted': True,
+                        'deleted_at': utils.utcnow(),
+                        'updated_at': literal_column('updated_at')})
+        session.query(models.SecurityGroupInstanceAssociation).\
+                filter_by(instance_id=instance_id).\
+                update({'deleted': True,
+                        'deleted_at': utils.utcnow(),
+                        'updated_at': literal_column('updated_at')})
+        session.query(models.InstanceMetadata).\
+                filter_by(instance_id=instance_id).\
+                update({'deleted': True,
+                        'deleted_at': utils.utcnow(),
+                        'updated_at': literal_column('updated_at')})
+        session.query(models.BlockDeviceMapping).\
+                filter_by(instance_id=instance_id).\
+                update({'deleted': True,
+                        'deleted_at': utils.utcnow(),
+                        'updated_at': literal_column('updated_at')})
+        instance_info_cache_delete(context, instance_uuid,
                                    session=session)
 
 
