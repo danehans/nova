@@ -18,13 +18,13 @@ import abstract_filter
 
 
 class AllHostsFilter(abstract_filter.AbstractHostFilter):
-    """NOP host filter. Returns all hosts in ZoneManager."""
-    def instance_type_to_filter(self, instance_type):
-        """Return anything to prevent base-class from raising
-        exception.
-        """
-        return instance_type
+    """NOP host filter. Returns all hosts."""
 
-    def filter_hosts(self, host_list, query, options):
-        """Return the entire list of supplied hosts."""
-        return list(host_list)
+    def compute_host_passes(self, host_state, filter_properties):
+        return True
+
+    def volume_host_passes(self, host_state, filter_properties):
+        return True
+
+    def network_host_passes(self, host_state, filter_properties):
+        return True

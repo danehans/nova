@@ -13,8 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import logging
-
+from nova import log as logging
 from nova.scheduler.filters import abstract_filter
 
 
@@ -23,9 +22,6 @@ LOG = logging.getLogger('nova.scheduler.filter.instance_type_filter')
 
 class InstanceTypeFilter(abstract_filter.AbstractHostFilter):
     """HostFilter hard-coded to work with InstanceType records."""
-    def instance_type_to_filter(self, instance_type):
-        """Use instance_type to filter hosts."""
-        return instance_type
 
     def _satisfies_extra_specs(self, capabilities, instance_type):
         """Check that the capabilities provided by the compute service
@@ -38,33 +34,27 @@ class InstanceTypeFilter(abstract_filter.AbstractHostFilter):
         # values so we can represent things like number of GPU cards
         try:
             for key, value in instance_type['extra_specs'].iteritems():
-                if capabilities[key] != value:
+                if capabilities.get(key, None) != value:
                     return False
         except KeyError, e:
             return False
         return True
 
-    def _basic_ram_filter(self, host_name, host_info, instance_type):
+    def _basic_ram_filter(self, host_state, instance_type):
         """Only return hosts with sufficient available RAM."""
         requested_ram = instance_type['memory_mb']
-        free_ram_mb = host_info.free_ram_mb
+        free_ram_mb = host_state.free_ram_mb
         return free_ram_mb >= requested_ram
 
-    def filter_hosts(self, host_list, query, options):
+    def compute_host_passes(self, host_state, filter_properties):
         """Return a list of hosts that can create instance_type."""
-        instance_type = query
-        selected_hosts = []
-        for hostname, host_info in host_list:
-            if not self._basic_ram_filter(hostname, host_info,
-                                          instance_type):
-                continue
-            capabilities = host_info.compute
-            if capabilities:
-                if not capabilities.get("enabled", True):
-                    continue
-                if not self._satisfies_extra_specs(capabilities,
-                                                   instance_type):
-                    continue
+        instance_type = filter_properties['instance_type']
+        capabilities = host_state.capabilities or {}
 
-            selected_hosts.append((hostname, host_info))
-        return selected_hosts
+        if not self._basic_ram_filter(host_state, instance_type):
+            return False
+        if not capabilities.get("enabled", True):
+            return False
+        if not self._satisfies_extra_specs(capabilities, instance_type):
+            return False
+        return True

@@ -15,14 +15,20 @@
 
 
 class AbstractHostFilter(object):
-    """Base class for host filters."""
-    def instance_type_to_filter(self, instance_type):
-        """Convert instance_type into a filter for most common use-case."""
-        raise NotImplementedError()
+    """Base class for host filters.
 
-    def filter_hosts(self, host_list, query, options):
-        """Return a list of hosts that fulfill the filter."""
-        raise NotImplementedError()
+    Default behavior is to do no filtering.  In subclasses, you may
+    define a filter function '<topic>_host_passes' where '<topic>'
+    is 'compute', 'volume', etc.
+
+    Example:
+
+    def compute_host_passes(self, host_state, filter_properties):
+        return host_state.host.startswith('foo')
+
+    That means that for compute filtering, only hosts that start with
+    the string 'foo' will pass.
+    """
 
     def _full_name(self):
         """module.classname of the filter."""
