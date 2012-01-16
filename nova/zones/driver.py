@@ -20,6 +20,7 @@ Base Zones Driver
 from nova import datetime
 
 from nova.db import base
+from nova import exception
 from nova import flags
 from nova import log as logging
 from nova import utils
@@ -66,7 +67,8 @@ class BaseZoneInfo(object, zone_name, is_me=False):
 class BaseZonesDriver(base.Base):
     """The base class for zones communication and management."""
 
-    def __init__(self, zone_info_cls=None):
+    def __init__(self, manager, zone_info_cls=None):
+        self.manager = manager
         if zone_info_cls is None:
             zone_info_cls = BaseZoneInfo
         self.my_zone_info = zone_info_cls(FLAGS.zone_name, is_me=True)
@@ -110,3 +112,59 @@ class BaseZonesDriver(base.Base):
             LOG.debug(_("Updating zone cache from db."))
             self.last_zone_db_check = utils.utcnow()
             self._refresh_zones_from_db(context)
+
+    def find_zone_next_hop(zone_name):
+        """Find the next hop for a zone"""
+        if zone_name == self.my_zone_info.zone_name:
+            return self.my_zone_info
+        my_zone_parts = self.my_zone_info.zone_name.split('.')
+        my_zone_parts_len = len(my_zone_parts)
+        dest_zone_parts = zone_name.split('.')
+        dest_zone_parts_len = len(dest_zone_parts
+        if dest_zone_parts_len == my_zone_parts_len:
+            # Inconsistency since we're at the same hop level and the
+            # message didn't match our name
+            msg = ("Destination zone '%(zone_name)s' is not me, but is "
+                    "at the same hop count" % locals())
+            raise exception.ZoneRoutingInconsistency(reason=msg)
+        elif dest_zone_parts_len > my_zone_parts_len:
+            # Must send it to a child zone
+            if dest_zone_parts[:my_zone_parts_len] != my_zone_parts:
+                msg = ("My name isn't prefixed in message for child "
+                        "zone '%(zone_name)s'" % locals())
+                raise exception.ZoneRoutingInconsistency(reason=msg)
+            next_hop_name = dest_zone_parts[:my_zone_parts_len+1].join('.')
+            zone_info = self.child_zones.get(next_hop_name)
+        else:
+            # Must send it to a parent zone
+            # The first part of the destination name should at least be
+            # consistent with us
+            if dest_zone_parts != my_zone_parts[:dest_zone_parts_len]:
+                msg = ("Destination zone '%(zone_name)s' has less hops
+                        than me, but doesn't have a common prefix" %
+                        locals())
+                raise exception.ZoneRoutingInconsistency(reason=msg)
+            zone_info = None
+            for zone_name, zone_info in self.parent_zones.items():
+                # Might have multiple parents that could work.. just
+                # pick the first.
+                zone_name_parts = zone_name.split('.')[:dest_zone_parts_len]
+                if zone_name_parts.join('.') == zone_name:
+                    break
+        if not zone_info:
+            msg = "Destination zone '%(zone_name)s' not found" % locals()
+            raise exception.ZoneRoutingInconsistency(reason=msg)
+        return zone_info
+
+
+    def route_call(context, zone_info, method, method_info, **kwargs):
+        raise NotImplementedError(_("Should be overriden in a subclass"))
+
+
+    def route_call_by_name(context, zone_name, method, method_info,
+            **kwargs):
+        zone_info = self.find_zone_next_hop(zone_name)
+        if zone_info.is_me:
+            fn = getattr(self.manager, method)
+            fn(method_info, **kwargs)
+        self.route_call(context, zone_info, method, method_info, **kwargs)

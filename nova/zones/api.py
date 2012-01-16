@@ -32,12 +32,23 @@ flags.DEFINE_bool('enable_rpc_zone_routing',
     'When True, zone communication occurs via RPC.')
 
 
-def zone_call_method(context, zone_name, method, *args, **kwargs):
-    LOG.debug(_("Sending call of method '%(method)s' in zone "
-        "'%(zone_name)s' to the zone router") % locals())
-    message = {'method': 'direct_route_by_name',
+def route_call_to_zone(context, zone_name, method, *args, **kwargs):
+    message = {'method': 'route_call_by_name',
                'args': {'zone_name': zone_name,
                         'method': method,
-                        'method_args': {'args': args,
-                                        'kwargs': kwargs}}}
+                        'method_args': args,
+                        'method_kwargs': kwargs,
+                        # not used atm
+                        'source_zone': FLAGS.zone_name}}
     rpc.cast(context, FLAGS.zones_topic, message)
+
+
+def call_service_api_method(context, zone_name, service_name, method,
+        *args, **kwargs):
+    """Encapsulate a call to a service API within a routing call"""
+    method_info = {'service_name': service_name,
+                   'method': method,
+                   'method_args': args,
+                   'method_kwargs': kwargs}
+    route_call_to_zone(context, zone_name, 'call_service_api_method',
+            method_info=method_info)

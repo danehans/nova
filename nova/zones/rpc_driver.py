@@ -29,4 +29,8 @@ class ZonesRPCDriver(driver.BaseZonesDriver):
     """Handles zone communication via RPC."""
 
     def __init__(self):
-        super(ZonesRPCDriver, self).__init__()
+       super(ZonesRPCDriver, self).__init__()
+
+    def route_call(context, zone_info, method, method_args,
+            **kwargs):
+        pass

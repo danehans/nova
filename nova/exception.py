@@ -888,3 +888,7 @@ class WillNotSchedule(NovaException):
 class QuotaError(ApiError):
     """Quota Exceeded."""
     pass
+
+
+class ZoneRoutingInconsistency(NovaException):
+    message = _("Inconsistency in zone routing: %(reason)")

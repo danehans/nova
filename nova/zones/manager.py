@@ -14,16 +14,17 @@
 #    under the License.
 
 """
-Zones Service
+Zones Service Manager
 """
 
-from nova import context
-from nova import db
+from nova.compute import api as compute_api
 from nova import flags
 from nova import log as logging
 from nova import manager
+from nova.network import api as network_api
 from nova import rpc
 from nova import utils
+from nova.volume import api as volume_api
 
 LOG = logging.getLogger('nova.zones.manager')
 FLAGS = flags.FLAGS
@@ -38,7 +39,12 @@ class ZonesManager(manager.Manager):
     def __init__(self, zones_driver=None, *args, **kwargs):
         if not zones_driver:
             zones_driver = FLAGS.zones_driver
-        self.driver = utils.import_object(zones_driver)
+        driver_cls = utils.import_class(zones_driver)
+        self.driver = driver_cls(self)
+        self.api_map = {'compute': compute_api,
+                        'network': network_api,
+                        'volume': volume_api}
+        self.driver.refresh_zones_from_db(context)
         super(ZonesManager, self).__init__(*args, **kwargs)
 
     @manager.periodic_task
@@ -46,7 +52,18 @@ class ZonesManager(manager.Manager):
         """Poll child zones periodically to get status."""
         self.driver.refresh_zones_from_db(context)
 
-    def direct_route_by_name(context, zone_name, method, method_args,
+    def route_call_by_name(context, zone_name, method, method_args,
             **kwargs):
-        self.driver.direct_route_by_name(context, zone_name, method,
+        self.driver.route_call_by_name(context, zone_name, method,
                 method_args, **kwargs)
+
+    def call_service_api_method(context, method_info, **kwargs):
+        api = self.api_map.get(method_info['service_name'])
+        if not api:
+            # FIXME(comstud): raise appropriate error
+            raise SystemError
+        method = getattr(api, method_info['method'], None)
+        if not method:
+            # FIXME(comstud): raise appropriate error
+            raise SystemError
+        return method(*method_info['args'], **method_info['kwargs'])
