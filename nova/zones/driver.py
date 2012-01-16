@@ -156,15 +156,15 @@ class BaseZonesDriver(base.Base):
             raise exception.ZoneRoutingInconsistency(reason=msg)
         return zone_info
 
-
-    def route_call(context, zone_info, method, method_info, **kwargs):
-        raise NotImplementedError(_("Should be overriden in a subclass"))
-
-
-    def route_call_by_name(context, zone_name, method, method_info,
-            **kwargs):
+    def route_call_by_zone_name(context, zone_name, method, method_kwargs,
+            source_zone, **kwargs):
         zone_info = self.find_zone_next_hop(zone_name)
         if zone_info.is_me:
             fn = getattr(self.manager, method)
-            fn(method_info, **kwargs)
-        self.route_call(context, zone_info, method, method_info, **kwargs)
+            return fn(method_info, **kwargs)
+        self.route_call_via_zone(context, zone_info, zone_name, method,
+                method_kwargs, source_zone, **kwargs)
+
+    def route_call_via_zone(context, zone_info, dest_zone_name, method,
+            method_kwargs, source_zone, **kwargs):
+        raise NotImplementedError(_("Should be overriden in a subclass"))

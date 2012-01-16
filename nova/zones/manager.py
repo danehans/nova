@@ -52,10 +52,10 @@ class ZonesManager(manager.Manager):
         """Poll child zones periodically to get status."""
         self.driver.refresh_zones_from_db(context)
 
-    def route_call_by_name(context, zone_name, method, method_args,
-            **kwargs):
-        self.driver.route_call_by_name(context, zone_name, method,
-                method_args, **kwargs)
+    def route_call_to_zone(context, zone_name, method, method_kwargs,
+            source_zone=None, **kwargs):
+        self.driver.route_call_to_zone(context, zone_name, method,
+                method_kwargs, source_zone=source_zone, **kwargs)
 
     def call_service_api_method(context, method_info, **kwargs):
         api = self.api_map.get(method_info['service_name'])

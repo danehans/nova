@@ -19,6 +19,7 @@ Zones RPC Driver
 
 from nova import flags
 from nova import log as logging
+from nova import rpc
 from nova.zones import driver
 
 LOG = logging.getLogger('nova.zones.rpc_driver')
@@ -31,6 +32,19 @@ class ZonesRPCDriver(driver.BaseZonesDriver):
     def __init__(self):
        super(ZonesRPCDriver, self).__init__()
 
-    def route_call(context, zone_info, method, method_args,
-            **kwargs):
-        pass
+    def route_call_via_zone(context, zone_info, dest_zone_name, method,
+            method_kwargs, source_zone, **kwargs):
+        param_map = {'username': 'userid',
+                     'password': 'password',
+                     'amqp_host': 'hostname',
+                     'amqp_port': 'port',
+                     'amqp_virtual_host': 'virtual_host'}
+        rabbit_params = {}
+        for source, target in param_map.items():
+            rabbit_params[target] = zone_info.db_info[source]
+        msg = {'method': 'route_call_by_zone_name',
+               'zone_name': dest_zone_name,
+               'method_kwargs': method_kwargs,
+               'source_zone': source_zone}
+        msg.update(kwargs)
+        rpc.cast_to_zone(context, rabbit_params, msg)

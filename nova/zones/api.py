@@ -32,11 +32,10 @@ flags.DEFINE_bool('enable_rpc_zone_routing',
     'When True, zone communication occurs via RPC.')
 
 
-def route_call_to_zone(context, zone_name, method, *args, **kwargs):
-    message = {'method': 'route_call_by_name',
+def route_call_to_zone(context, zone_name, method, **kwargs):
+    message = {'method': 'route_call_by_zone_name',
                'args': {'zone_name': zone_name,
                         'method': method,
-                        'method_args': args,
                         'method_kwargs': kwargs,
                         # not used atm
                         'source_zone': FLAGS.zone_name}}

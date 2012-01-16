@@ -328,13 +328,15 @@ class Connection(object):
         self.interval_max = 30
         self.memory_transport = False
 
-        self.params = dict(hostname=FLAGS.rabbit_host,
-                          port=FLAGS.rabbit_port,
-                          userid=FLAGS.rabbit_userid,
-                          password=FLAGS.rabbit_password,
-                          virtual_host=FLAGS.rabbit_virtual_host)
-        for key in self.params.keys():
-            self.params[key] = kwargs.get(key) or self.params[key]
+        default_params = dict(hostname=FLAGS.rabbit_host,
+                port=FLAGS.rabbit_port,
+                userid=FLAGS.rabbit_userid,
+                password=FLAGS.rabbit_password,
+                virtual_host=FLAGS.rabbit_virtual_host)
+
+        self.params = kwargs
+        for key in default_params.keys():
+            self.params[key] = kwargs.get(key) or default_params[key]
 
         if FLAGS.fake_rabbit:
             self.params['transport'] = 'memory'
