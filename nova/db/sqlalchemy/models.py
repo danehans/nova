@@ -863,6 +863,10 @@ class Zone(BASE, NovaBase):
     password = Column(String(255))
     weight_offset = Column(Float(), default=0.0)
     weight_scale = Column(Float(), default=1.0)
+    is_parent = Column(Boolean())
+    amqp_host = Column(String(255))
+    amqp_port = Column(Integer())
+    amqp_virtual_host = Column(String(255))
 
 
 class AgentBuild(BASE, NovaBase):
