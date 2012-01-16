@@ -18,6 +18,7 @@ Zones Service Manager
 """
 
 from nova.compute import api as compute_api
+from nova import db
 from nova import flags
 from nova import log as logging
 from nova import manager
@@ -54,11 +55,17 @@ class ZonesManager(manager.Manager):
 
     def route_call_to_zone(context, zone_name, method, method_kwargs,
             source_zone=None, **kwargs):
+        """Route a call to a specific zone name.  If the destination
+        is our zone, we'll end up getting a call back to the appropriate
+        method.
+        """
         self.driver.route_call_to_zone(context, zone_name, method,
                 method_kwargs, source_zone=source_zone, **kwargs)
 
     def call_service_api_method(context, method_info, **kwargs):
-        api = self.api_map.get(method_info['service_name'])
+        """Caller wants us to call a method in a service API"""
+        service_name = method_info['service_name']
+        api = self.api_map.get(service_name)
         if not api:
             # FIXME(comstud): raise appropriate error
             raise SystemError
@@ -66,4 +73,15 @@ class ZonesManager(manager.Manager):
         if not method:
             # FIXME(comstud): raise appropriate error
             raise SystemError
-        return method(*method_info['args'], **method_info['kwargs'])
+        # FIXME(comstud): Make more generic later
+        args = method_info['args']
+        if service_name == 'compute':
+            # 1st arg is context
+            # 2nd arg is instance_uuid that we need to turn into the
+            # instance object.
+            instance = db.instance_get_by_uuid(args[0], args[1])
+            if len(args) > 2:
+                args = (args[0], instance, args[2:])
+            else:
+                args = (args[0], instance)
+        return method(args, **method_info['kwargs'])

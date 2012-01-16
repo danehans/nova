@@ -27,10 +27,6 @@ from nova import utils
 FLAGS = flags.FLAGS
 LOG = logging.getLogger('nova.zones.api')
 
-flags.DEFINE_bool('enable_rpc_zone_routing',
-    False,
-    'When True, zone communication occurs via RPC.')
-
 
 def route_call_to_zone(context, zone_name, method, **kwargs):
     message = {'method': 'route_call_by_zone_name',
@@ -42,6 +38,17 @@ def route_call_to_zone(context, zone_name, method, **kwargs):
     rpc.cast(context, FLAGS.zones_topic, message)
 
 
+def cast_service_api_method(context, zone_name, service_name, method,
+        *args, **kwargs):
+    """Encapsulate a call to a service API within a routing call"""
+    method_info = {'service_name': service_name,
+                   'method': method,
+                   'method_args': args,
+                   'method_kwargs': kwargs}
+    route_call_to_zone(context, zone_name, 'call_service_api_method',
+            method_info=method_info)
+
+# FIXME(comstud): Make calls work, I guess, for things not cached.
 def call_service_api_method(context, zone_name, service_name, method,
         *args, **kwargs):
     """Encapsulate a call to a service API within a routing call"""

@@ -16,4 +16,16 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from nova.compute.api import API
+from nova import flags
+
+FLAGS = flags.FLAGS
+
+# FIXME(comstud): Needs to be more generic for other services.
+flags.DEFINE_bool('enable_compute_zone_routing',
+        False,
+        'When True, compute actions will be proxied via zones service')
+
+if FLAGS.enable_compute_zone_routing:
+    from nova.compute.api_using_zones import APIUsingZones as API
+else:
+    from nova.compute.api import API
