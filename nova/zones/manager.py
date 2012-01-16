@@ -17,11 +17,8 @@
 Zones Service
 """
 
-import functools
-
-from nova.compute import vm_states
+from nova import context
 from nova import db
-from nova import exception
 from nova import flags
 from nova import log as logging
 from nova import manager
@@ -44,5 +41,12 @@ class ZonesManager(manager.Manager):
         self.driver = utils.import_object(zones_driver)
         super(ZonesManager, self).__init__(*args, **kwargs)
 
-    def call_zone(zone_name, method, *args, **kwargs):
-        self.driver.call_zone(zone_name, method, *args, **kwargs)
+    @manager.periodic_task
+    def _refresh_zones_from_db(self, context):
+        """Poll child zones periodically to get status."""
+        self.driver.refresh_zones_from_db(context)
+
+    def direct_route_by_name(context, zone_name, method, method_args,
+            **kwargs):
+        self.driver.direct_route_by_name(context, zone_name, method,
+                method_args, **kwargs)

@@ -25,11 +25,19 @@ from nova import rpc
 from nova import utils
 
 FLAGS = flags.FLAGS
+LOG = logging.getLogger('nova.zones.api')
+
 flags.DEFINE_bool('enable_rpc_zone_routing',
     False,
     'When True, zone communication occurs via RPC.')
 
-LOG = logging.getLogger('nova.zones.api')
 
-
-
+def zone_call_method(context, zone_name, method, *args, **kwargs):
+    LOG.debug(_("Sending call of method '%(method)s' in zone "
+        "'%(zone_name)s' to the zone router") % locals())
+    message = {'method': 'direct_route_by_name',
+               'args': {'zone_name': zone_name,
+                        'method': method,
+                        'method_args': {'args': args,
+                                        'kwargs': kwargs}}}
+    rpc.cast(context, FLAGS.zones_topic, message)

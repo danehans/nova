@@ -19,16 +19,14 @@ Zones RPC Driver
 
 from nova import flags
 from nova import log as logging
+from nova.zones import driver
 
-LOG = logging.getLogger('nova.zones.manager')
+LOG = logging.getLogger('nova.zones.rpc_driver')
 FLAGS = flags.FLAGS
 
 
-class ZonesRPCDriver(object):
+class ZonesRPCDriver(driver.BaseZonesDriver):
     """Handles zone communication via RPC."""
 
     def __init__(self):
         super(ZonesRPCDriver, self).__init__()
-
-    def call_zone(zone_name, method, *args, **kwargs):
-        pass
