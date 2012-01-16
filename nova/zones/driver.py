@@ -18,6 +18,7 @@ Base Zones Driver
 """
 
 import datetime
+import random
 
 from nova.db import base
 from nova import exception
@@ -172,8 +173,8 @@ class BaseZonesDriver(base.Base):
             method, method_kwargs, source_zone, **kwargs):
         raise NotImplementedError(_("Should be overriden in a subclass"))
 
-    def instance_update(self, instance_uuid, instance_info, source_zone):
-        ctxt = context.get_admin_context()
+    def instance_update(self, context, instance_uuid, instance_info,
+            source_zone):
         if self.parent_zones:
             message = {'method': 'instance_update',
                        'args': {'instance_uuid': instance_uuid,
@@ -182,29 +183,37 @@ class BaseZonesDriver(base.Base):
             for zone_info in self.parent_zones.values():
                 self.send_message_to_zone(context, zone_info, message)
             return
-        # FIXME(comstud): decode created_at/updated_at.  Add zone to
-        # db
+        # FIXME(comstud): decode created_at/updated_at.
+        if source_zone:
+            instance_info['zone_name'] = source_zone
         try:
-            self.db.instance_update(ctxt, instance_uuid, instance_info)
+            self.db.instance_update(context, instance_uuid, instance_info)
         except exception.NotFound:
             # FIXME(comstud):  Need better checking to see if instance
             # was deleted.. maybe due to msg ordering issue?
-            instance = self.db.instance_create(ctxt, instance_info)
+            instance = self.db.instance_create(context, instance_info)
             # FIXME(comstud)
-            self.db.instance_update(ctxt, instance['id'], instance_uuid)
+            self.db.instance_update(context, instance['id'], instance_uuid)
 
-    def instance_destroy(self, instance_uuid, instance_info, source_zone):
-        ctxt = context.get_admin_context()
+    def instance_destroy(self, context, instance_uuid, instance_info,
+            source_zone):
         if self.parent_zones:
             message = {'method': 'instance_destroy',
                        'args': {'instance_uuid': instance_uuid,
                                 'source_zone': source_zone}}
             for zone_info in self.parent_zones.values():
-                self.send_message_to_zone(ctxt, zone_info, message)
+                self.send_message_to_zone(context, zone_info, message)
             return
         # FIXME(comstud): decode deleted_at/updated_at.  Also, currently
         # instance_destroy() requires the instance id, not uuid.
         try:
-            self.db.instance_destroy(ctxt, instance_uuid)
+            self.db.instance_destroy(context, instance_uuid)
         except exception.InstanceNotFound:
             pass
+
+    def pick_a_zone(self, request_spec):
+        children = self.children.values()
+        if not children:
+            # No more children... I must be the winner.
+            return self.my_zone_info
+        return children[int(random.random() * len(children))]

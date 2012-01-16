@@ -87,6 +87,8 @@ class ZonesManager(manager.Manager):
         return method(args, **method_info['kwargs'])
 
     def _create_instance_here(self, context, request_spec):
+        instance_values = request_spec['instance_properties']
+        instance_values['zone_name'] = FLAGS.zone_name
         instance = self.db.create_db_entry_for_new_instance(context,
                 request_spec['instance_type'],
                 request_spec['image'],
@@ -97,9 +99,10 @@ class ZonesManager(manager.Manager):
         # FIXME(comstud): The instance_create() db call generates its
         # own uuid...so we update it here.  Prob should make the db
         # call not generate a uuid if one was passed
-        self.db.instance_update(context, instance['id'], {'uuid': uuid})
+        rv = self.db.instance_update(context, instance['id'], {'uuid': uuid})
+        self.instance_update(uuid, rv, FLAGS.zone_name)
 
-    def schedule_run_instance(self, request_spec, admin_password,
+    def schedule_run_instance(self, context, request_spec, admin_password,
             injected_files, requested_networks, **kwargs):
 
         args = {'request_spec': request_spec,
@@ -124,10 +127,10 @@ class ZonesManager(manager.Manager):
             args['block_device_mapping'] = block_device_mapping
             rpc.send_message_to_zone(context, zone_info, msg)
 
-    def instance_update(self, instance_uuid, instance_info, source_zone,
-            **kwargs):
-        self.driver.instance_update(instance_uuid, instance_info,
+    def instance_update(self, context, instance_uuid, instance_info,
+            source_zone, **kwargs):
+        self.driver.instance_update(context, instance_uuid, instance_info,
                 source_zone)
 
-    def instance_delete(self, instance_uuid, source_zone, **kwargs):
-        self.driver.instance_delete(instance_uuid, source_zone)
+    def instance_delete(self, context, instance_uuid, source_zone, **kwargs):
+        self.driver.instance_delete(context, instance_uuid, source_zone)

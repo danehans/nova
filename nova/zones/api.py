@@ -78,7 +78,9 @@ def instance_update(context, instance):
 
     update_info = {}
     for key in update_fields:
-        update_info[key] = instance[key]
+        # FIXME(comstud): Only checking this way because of tests for now
+        if key in instance:
+            update_info[key] = instance[key]
 
     # FIXME: encode created_at/updated_at
     message = {'method': 'instance_update',
