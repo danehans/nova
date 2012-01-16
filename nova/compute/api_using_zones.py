@@ -24,6 +24,9 @@ FLAGS = flags.FLAGS
 LOG = logging.getLogger('nova.compute.api_using_zones')
 
 
+check_instance_state = compute_api.check_instance_state
+
+
 class APIUsingZones(compute_api.API):
 
     def cast_to_zones(self, context, instance, method, *args, **kwargs):
@@ -63,7 +66,6 @@ class APIUsingZones(compute_api.API):
         """
         super(APIUsingZones, self)._schedule_run_instance(
                 self._run_instance_rpc_method, *args, **kwargs)
-
 
     def create(self, context, instance_type,
                image_href, kernel_id=None, ramdisk_id=None,
@@ -105,7 +107,6 @@ class APIUsingZones(compute_api.API):
                 block_device_mapping, auto_disk_config,
                 create_instance_here=True)
 
-
     @check_instance_state(vm_state=[vm_states.ACTIVE, vm_states.SHUTOFF,
                                     vm_states.ERROR])
     def soft_delete(self, context, instance):
@@ -113,7 +114,6 @@ class APIUsingZones(compute_api.API):
 
         LOG.debug(_("Going to try to soft delete %s"), instance_uuid)
         self.cast_to_zones(context, instance, 'soft_delete')
-
 
     # NOTE(jerdfelt): The API implies that only ACTIVE and ERROR are
     # allowed but the EC2 API appears to allow from RESCUED and STOPPED

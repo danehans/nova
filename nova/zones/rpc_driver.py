@@ -30,7 +30,7 @@ class ZonesRPCDriver(driver.BaseZonesDriver):
     """Handles zone communication via RPC."""
 
     def __init__(self):
-       super(ZonesRPCDriver, self).__init__()
+        super(ZonesRPCDriver, self).__init__()
 
     def _get_rabbit_params_for_zone(self, context, zone_info):
         param_map = {'username': 'userid',

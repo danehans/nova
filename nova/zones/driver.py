@@ -134,7 +134,7 @@ class BaseZonesDriver(base.Base):
                 msg = ("My name isn't prefixed in message for child "
                         "zone '%(zone_name)s'" % locals())
                 raise exception.ZoneRoutingInconsistency(reason=msg)
-            next_hop_name = dest_zone_parts[:my_zone_parts_len+1].join('.')
+            next_hop_name = dest_zone_parts[:my_zone_parts_len + 1].join('.')
             zone_info = self.child_zones.get(next_hop_name)
         else:
             # Must send it to a parent zone

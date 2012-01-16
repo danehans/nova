@@ -910,10 +910,12 @@ def msg_reply(msg_id, reply=None, failure=None, ending=False):
             msg['ending'] = True
         conn.direct_send(msg_id, msg)
 
+
 def cast_to_zone(context, rabbit_params, msg):
     _pack_context(msg, context)
     with ConnectionContext(pooled=False, **rabbit_params) as conn:
         conn.topic_send(FLAGS.zones_topic, msg)
+
 
 def broadcast_to_zone(context, rabbit_params, msg):
     _pack_context(msg, context)

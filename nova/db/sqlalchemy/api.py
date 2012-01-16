@@ -1153,6 +1153,7 @@ def instance_destroy(context, instance_id):
         instance_info_cache_delete(context, instance_ref['uuid'],
                                    session=session)
 
+
 @require_context
 def instance_destroy_by_uuid(context, instance_uuid):
     session = get_session()
