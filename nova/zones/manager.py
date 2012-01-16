@@ -53,7 +53,7 @@ class ZonesManager(manager.Manager):
         """Poll child zones periodically to get status."""
         self.driver.refresh_zones_from_db(context)
 
-    def route_call_to_zone(context, zone_name, method, method_kwargs,
+    def route_call_to_zone(self, context, zone_name, method, method_kwargs,
             source_zone=None, **kwargs):
         """Route a call to a specific zone name.  If the destination
         is our zone, we'll end up getting a call back to the appropriate
@@ -62,7 +62,7 @@ class ZonesManager(manager.Manager):
         self.driver.route_call_to_zone(context, zone_name, method,
                 method_kwargs, source_zone=source_zone, **kwargs)
 
-    def call_service_api_method(context, method_info, **kwargs):
+    def call_service_api_method(self, context, method_info, **kwargs):
         """Caller wants us to call a method in a service API"""
         service_name = method_info['service_name']
         api = self.api_map.get(service_name)
@@ -85,3 +85,41 @@ class ZonesManager(manager.Manager):
             else:
                 args = (args[0], instance)
         return method(args, **method_info['kwargs'])
+
+    def _create_instance_here(self, context, request_spec):
+        instance = self.db.create_db_entry_for_new_instance(context,
+                request_spec['instance_type'],
+                request_spec['image'],
+                request_spec['instance_properties'],
+                request_spec['security_group'],
+                request_spec['block_device_mapping'])
+        uuid = request_spec['instance_properties']['uuid']
+        # FIXME(comstud): The instance_create() db call generates its
+        # own uuid...so we update it here.  Prob should make the db
+        # call not generate a uuid if one was passed
+        self.db.instance_update(context, {'uuid': uuid})
+
+    def schedule_run_instance(self, request_spec, admin_password,
+            injected_files, requested_networks, **kwargs):
+
+        args = {'request_spec': request_spec,
+                'admin_password': admin_password,
+                'injected_files': injected_files,
+                'requested_networks': requested_networks}
+        args.update(kwargs)
+        msg = {'method': 'schedule_run_instance',
+               'args': args}
+
+        zone_info = self.driver.pick_a_zone(request_spec)
+        if zone_info.is_me:
+            # Need to create instance DB entry as scheduler thinks it's
+            # already created... at least how things currently work.
+            self._create_instance_here(context, request_spec)
+            args['topic'] = FLAGS.compute_topic
+            rpc.cast(context, FLAGS.scheduler_topic, msg)
+        else:
+            args['instance_type'] = instance_type
+            args['image'] = image
+            args['security_group'] = security_group
+            args['block_device_mapping'] = block_device_mapping
+            rpc.send_message_to_zone(context, zone_info, msg)

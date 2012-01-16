@@ -32,8 +32,7 @@ class ZonesRPCDriver(driver.BaseZonesDriver):
     def __init__(self):
        super(ZonesRPCDriver, self).__init__()
 
-    def route_call_via_zone(context, zone_info, dest_zone_name, method,
-            method_kwargs, source_zone, **kwargs):
+    def _get_rabbit_params_for_zone(context, zone_info):
         param_map = {'username': 'userid',
                      'password': 'password',
                      'amqp_host': 'hostname',
@@ -42,9 +41,17 @@ class ZonesRPCDriver(driver.BaseZonesDriver):
         rabbit_params = {}
         for source, target in param_map.items():
             rabbit_params[target] = zone_info.db_info[source]
+        return rabbit_params
+
+    def send_message_to_zone(context, zone_info, message)
+        rabbit_params = self._get_rabbit_params_for_zone(zone_info)
+        rpc.cast_to_zone(context, rabbit_params, message)
+
+    def route_call_via_zone(context, zone_info, dest_zone_name, method,
+            method_kwargs, source_zone=None, **kwargs):
         msg = {'method': 'route_call_by_zone_name',
                'zone_name': dest_zone_name,
                'method_kwargs': method_kwargs,
-               'source_zone': source_zone}
+               'source_zone': source_zone or self.my_zone_info.zone_name}
         msg.update(kwargs)
-        rpc.cast_to_zone(context, rabbit_params, msg)
+        self.send_message_to_zone(context, zone_info, msg)

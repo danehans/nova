@@ -48,6 +48,7 @@ def cast_service_api_method(context, zone_name, service_name, method,
     route_call_to_zone(context, zone_name, 'call_service_api_method',
             method_info=method_info)
 
+
 # FIXME(comstud): Make calls work, I guess, for things not cached.
 def call_service_api_method(context, zone_name, service_name, method,
         *args, **kwargs):
@@ -58,3 +59,13 @@ def call_service_api_method(context, zone_name, service_name, method,
                    'method_kwargs': kwargs}
     route_call_to_zone(context, zone_name, 'call_service_api_method',
             method_info=method_info)
+
+
+def schedule_run_instance(context, request_spec, admin_password,
+        injected_files, requested_networks):
+    message = {'method': 'schedule_run_instance',
+               'args': {'request_spec': request_spec,
+                        'admin_password': admin_password,
+                        'injected_files': injected_files,
+                        'requested_networks': requested_neworks}}
+    rpc.cast(context, FLAGS.zones_topic, message)

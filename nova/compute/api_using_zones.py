@@ -44,6 +44,27 @@ class APIUsingZones(compute_api.API):
         zones_api.call_service_api_method(context, zone_name, 'compute',
                 method, context, instance_uuid, *args, **kwargs)
 
+    def _check_requested_networks(self, context, requested_networks):
+        """Override compute API's checking of this.  It'll happen in
+        child zone
+        """
+        return
+
+    def _run_instance_rpc_method(self, context, topic, message):
+        """Proxy run_instance rpc call to zones instead of scheduler"""
+        args = message['args']
+        zones_api.schedule_run_instance(context,
+                args['request_spec'], args['admin_password'],
+                args['injected_files'], args['requested_networks'])
+
+    def _schedule_run_instance(self, rpc_method, *args, **kwargs):
+        """Override default behavior and send this to zones service by
+        passing in our own rpc method
+        """
+        super(APIUsingZones, self)._schedule_run_instance(
+                self._run_instance_rpc_method, *args, **kwargs)
+
+
     def create(self, context, instance_type,
                image_href, kernel_id=None, ramdisk_id=None,
                min_count=None, max_count=None,
@@ -64,16 +85,34 @@ class APIUsingZones(compute_api.API):
         could be 'None' or a list of instance dicts depending on if
         we waited for information from the scheduler or not.
         """
-        pass
+
+        if max_count and max_count != 1:
+            # FIXME(comstud): Only support 1
+            raise SystemError
+
+        min_count = 1
+
+        (instances, reservation_id) = self._create_instance(
+                context, instance_type,
+                image_href, kernel_id, ramdisk_id,
+                min_count, max_count,
+                display_name, display_description,
+                key_name, key_data, security_group,
+                availability_zone, user_data, metadata,
+                injected_files, admin_password, zone_blob,
+                reservation_id, access_ip_v4, access_ip_v6,
+                requested_networks, config_drive,
+                block_device_mapping, auto_disk_config,
+                create_instance_here=True)
+
 
     @check_instance_state(vm_state=[vm_states.ACTIVE, vm_states.SHUTOFF,
                                     vm_states.ERROR])
     def soft_delete(self, context, instance):
         """Terminate an instance."""
 
-        pass
-        instance_uuid = instance["uuid"]
         LOG.debug(_("Going to try to soft delete %s"), instance_uuid)
+        self.cast_to_zones(context, instance, 'soft_delete')
 
 
     # NOTE(jerdfelt): The API implies that only ACTIVE and ERROR are
@@ -102,8 +141,11 @@ class APIUsingZones(compute_api.API):
                           task_state=[None, task_states.RESIZE_VERIFY])
     def stop(self, context, instance, do_cast=True):
         """Stop an instance."""
-        instance_uuid = instance["uuid"]
-        pass
+        if do_cast:
+            self.cast_to_zones(context, instance, 'stop', do_cast=True)
+        else:
+            return self.call_to_zones(context, instance, 'stop',
+                    do_cast=False)
 
     @check_instance_state(vm_state=[vm_states.STOPPED, vm_states.SHUTOFF])
     def start(self, context, instance):
@@ -123,6 +165,7 @@ class APIUsingZones(compute_api.API):
             None if rotation shouldn't be used (as in the case of snapshots)
         :param extra_properties: dict of extra image properties to include
         """
+        # FIXME(comstud)
         recv_meta = self._create_image(context, instance, name, 'backup',
                             backup_type=backup_type, rotation=rotation,
                             extra_properties=extra_properties)
@@ -139,6 +182,7 @@ class APIUsingZones(compute_api.API):
 
         :returns: A dict containing image metadata
         """
+        # FIXME(comstud)
         return self._create_image(context, instance, name, 'snapshot',
                                   extra_properties=extra_properties)
 
