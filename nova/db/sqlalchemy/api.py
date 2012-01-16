@@ -1153,6 +1153,33 @@ def instance_destroy(context, instance_id):
         instance_info_cache_delete(context, instance_ref['uuid'],
                                    session=session)
 
+@require_context
+def instance_destroy_by_uuid(context, instance_uuid):
+    session = get_session()
+    with session.begin():
+        session.query(models.Instance).\
+                filter_by(uuid=instance_uuid).\
+                update({'deleted': True,
+                        'deleted_at': utils.utcnow(),
+                        'updated_at': literal_column('updated_at')})
+        session.query(models.SecurityGroupInstanceAssociation).\
+                filter_by(instance_id=instance_id).\
+                update({'deleted': True,
+                        'deleted_at': utils.utcnow(),
+                        'updated_at': literal_column('updated_at')})
+        session.query(models.InstanceMetadata).\
+                filter_by(instance_id=instance_id).\
+                update({'deleted': True,
+                        'deleted_at': utils.utcnow(),
+                        'updated_at': literal_column('updated_at')})
+        session.query(models.BlockDeviceMapping).\
+                filter_by(instance_id=instance_id).\
+                update({'deleted': True,
+                        'deleted_at': utils.utcnow(),
+                        'updated_at': literal_column('updated_at')})
+        instance_info_cache_delete(context, instance_uuid,
+                                   session=session)
+
 
 @require_context
 def instance_stop(context, instance_id):

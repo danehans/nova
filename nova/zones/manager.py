@@ -97,7 +97,7 @@ class ZonesManager(manager.Manager):
         # FIXME(comstud): The instance_create() db call generates its
         # own uuid...so we update it here.  Prob should make the db
         # call not generate a uuid if one was passed
-        self.db.instance_update(context, {'uuid': uuid})
+        self.db.instance_update(context, instance['id'], {'uuid': uuid})
 
     def schedule_run_instance(self, request_spec, admin_password,
             injected_files, requested_networks, **kwargs):
@@ -123,3 +123,11 @@ class ZonesManager(manager.Manager):
             args['security_group'] = security_group
             args['block_device_mapping'] = block_device_mapping
             rpc.send_message_to_zone(context, zone_info, msg)
+
+    def instance_update(self, instance_uuid, instance_info, source_zone,
+            **kwargs):
+        self.driver.instance_update(instance_uuid, instance_info,
+                source_zone)
+
+    def instance_delete(self, instance_uuid, source_zone, **kwargs):
+        self.driver.instance_delete(instance_uuid, source_zone)

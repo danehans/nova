@@ -43,6 +43,7 @@ from nova import rpc
 from nova.scheduler import api as scheduler_api
 from nova import utils
 from nova import volume
+from nova.zones import api as zones_api
 
 
 LOG = logging.getLogger('nova.compute.api')
@@ -790,6 +791,7 @@ class API(base.Base):
         :returns: None
         """
         rv = self.db.instance_update(context, instance["id"], kwargs)
+        zones_api.instance_update(context, instance)
         return dict(rv.iteritems())
 
     @wrap_check_policy
@@ -834,6 +836,7 @@ class API(base.Base):
                                        instance['uuid'], host)
         else:
             self.db.instance_destroy(context, instance['id'])
+            zones_api.instance_destroy(context, instance)
 
     # NOTE(jerdfelt): The API implies that only ACTIVE and ERROR are
     # allowed but the EC2 API appears to allow from RESCUED and STOPPED

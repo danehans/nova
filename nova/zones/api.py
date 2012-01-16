@@ -69,3 +69,28 @@ def schedule_run_instance(context, request_spec, admin_password,
                         'injected_files': injected_files,
                         'requested_networks': requested_neworks}}
     rpc.cast(context, FLAGS.zones_topic, message)
+
+
+def instance_update(context, instance):
+    # extra things in case the instance disappears from cache at the top
+    update_fields = ['vm_state', 'task_state', 'host', 'project_id',
+            'user_id', 'progress', 'image_ref']
+
+    update_info = {}
+    for key in update_fields:
+        update_info[key] = instance[key]
+
+    # FIXME: encode created_at/updated_at
+    message = {'method': 'instance_update':
+               'args': {'instance_uuid': instance['uuid'],
+                        'update_info': update_info,
+                        'source_zone': FLAGS.zone_name}}
+    rpc.cast(context, FLAGS.zones_topic, message)
+
+
+def instance_destroy(context, instance):
+    # FIXME: encode deleted_at
+    message = {'method': 'instance_destroy':
+               'args': {'instance_uuid': instance['uuid'],
+                        'source_zone': FLAGS.zone_name}}
+    rpc.cast(context, FLAGS.zones_topic, message)

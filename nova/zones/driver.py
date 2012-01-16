@@ -113,7 +113,7 @@ class BaseZonesDriver(base.Base):
             self.last_zone_db_check = utils.utcnow()
             self._refresh_zones_from_db(context)
 
-    def find_zone_next_hop(zone_name):
+    def find_zone_next_hop(self, zone_name):
         """Find the next hop for a zone"""
         if zone_name == self.my_zone_info.zone_name:
             return self.my_zone_info
@@ -156,8 +156,8 @@ class BaseZonesDriver(base.Base):
             raise exception.ZoneRoutingInconsistency(reason=msg)
         return zone_info
 
-    def route_call_by_zone_name(context, zone_name, method, method_kwargs,
-            source_zone, **kwargs):
+    def route_call_by_zone_name(self, context, zone_name, method,
+            method_kwargs, source_zone, **kwargs):
         zone_info = self.find_zone_next_hop(zone_name)
         if zone_info.is_me:
             fn = getattr(self.manager, method)
@@ -165,6 +165,46 @@ class BaseZonesDriver(base.Base):
         self.route_call_via_zone(context, zone_info, zone_name, method,
                 method_kwargs, source_zone, **kwargs)
 
-    def route_call_via_zone(context, zone_info, dest_zone_name, method,
-            method_kwargs, source_zone, **kwargs):
+    def send_message_to_zone(self, context, zone_info, message):
         raise NotImplementedError(_("Should be overriden in a subclass"))
+
+    def route_call_via_zone(self, context, zone_info, dest_zone_name,
+            method, method_kwargs, source_zone, **kwargs):
+        raise NotImplementedError(_("Should be overriden in a subclass"))
+
+    def instance_update(self, instance_uuid, instance_info, source_zone):
+        ctxt = context.get_admin_context()
+        if self.parent_zones:
+            message = {'method': 'instance_update',
+                       'args': {'instance_uuid': instance_uuid,
+                                'instance_info': instance_info,
+                                'source_zone': source_zone}}
+            for zone_info in self.parent_zones.values():
+                self.send_message_to_zone(context, zone_info, message)
+            return
+        # FIXME(comstud): decode created_at/updated_at.  Add zone to
+        # db
+        try:
+            self.db.instance_update(ctxt, instance_uuid, instance_info)
+        except exception.NotFound:
+            # FIXME(comstud):  Need better checking to see if instance
+            # was deleted.. maybe due to msg ordering issue?
+            instance = self.db.instance_create(ctxt, instance_info)
+            # FIXME(comstud)
+            self.db.instance_update(ctxt, instance['id'], instance_uuid)
+
+    def instance_destroy(self, instance_uuid, instance_info, source_zone):
+        ctxt = context.get_admin_context()
+        if self.parent_zones:
+            message = {'method': 'instance_destroy',
+                       'args': {'instance_uuid': instance_uuid,
+                                'source_zone': source_zone}}
+            for zone_info in self.parent_zones.values():
+                self.send_message_to_zone(ctxt, zone_info, message)
+            return
+        # FIXME(comstud): decode deleted_at/updated_at.  Also, currently
+        # instance_destroy() requires the instance id, not uuid.
+        try:
+            self.db.instance_destroy(ctxt, instance_uuid)
+        except exception.InstanceNotFound:
+            pass
