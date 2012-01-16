@@ -21,6 +21,7 @@ from nova.api.openstack.compute.contrib import floating_ips
 from nova import context
 from nova import db
 from nova import network
+from nova import compute
 from nova import rpc
 from nova import test
 from nova.tests.api.openstack import fakes
@@ -29,28 +30,35 @@ from nova import utils
 FAKE_UUID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
 
 
+def network_api_get_fixed_ip(self, context, id):
+    if id is None:
+        return None
+    return {'address': '10.0.0.1', 'id': id, 'instance_id': 1}
+
+
 def network_api_get_floating_ip(self, context, id):
-    return {'id': 1, 'address': '10.10.10.10',
-            'pool': 'nova',
-            'fixed_ip': None}
+    return {'id': 1, 'address': '10.10.10.10', 'pool': 'nova',
+            'fixed_ip_id': None}
 
 
 def network_api_get_floating_ip_by_address(self, context, address):
-    return {'id': 1, 'address': '10.10.10.10',
-            'pool': 'nova',
-            'fixed_ip': {'address': '10.0.0.1',
-                         'instance': {'uuid': FAKE_UUID}}}
+    return {'id': 1, 'address': '10.10.10.10', 'pool': 'nova',
+            'fixed_ip_id': 10}
 
 
 def network_api_get_floating_ips_by_project(self, context):
     return [{'id': 1,
              'address': '10.10.10.10',
              'pool': 'nova',
-             'fixed_ip': {'address': '10.0.0.1',
-                          'instance': {'uuid': FAKE_UUID}}},
+             'fixed_ip_id': 20},
             {'id': 2,
              'pool': 'nova', 'interface': 'eth0',
-             'address': '10.10.10.11'}]
+             'address': '10.10.10.11',
+            'fixed_ip_id': None}]
+
+
+def compute_api_get(self, context, instance_id):
+    return dict(uuid=FAKE_UUID)
 
 
 def network_api_allocate(self, context):
@@ -99,11 +107,6 @@ def fake_instance_get(context, instance_id):
         "project_id": '123'}
 
 
-class StubExtensionManager(object):
-    def register(self, *args):
-        pass
-
-
 class FloatingIpTest(test.TestCase):
     floating_ip = "10.10.10.10"
 
@@ -120,6 +123,10 @@ class FloatingIpTest(test.TestCase):
 
     def setUp(self):
         super(FloatingIpTest, self).setUp()
+        self.stubs.Set(network.api.API, "get_fixed_ip",
+                       network_api_get_fixed_ip)
+        self.stubs.Set(compute.api.API, "get",
+                       compute_api_get)
         self.stubs.Set(network.api.API, "get_floating_ip",
                        network_api_get_floating_ip)
         self.stubs.Set(network.api.API, "get_floating_ip_by_address",
@@ -139,7 +146,7 @@ class FloatingIpTest(test.TestCase):
         self._create_floating_ip()
 
         self.controller = floating_ips.FloatingIPController()
-        self.manager = floating_ips.Floating_ips(StubExtensionManager())
+        self.manager = floating_ips.FloatingIPActionController()
 
     def tearDown(self):
         self._delete_floating_ip()
@@ -149,6 +156,8 @@ class FloatingIpTest(test.TestCase):
         floating_ip_address = self._create_floating_ip()
         floating_ip = db.floating_ip_get_by_address(self.context,
                                                     floating_ip_address)
+        floating_ip['fixed_ip'] = None
+        floating_ip['instance'] = None
         view = floating_ips._translate_floating_ip_view(floating_ip)
         self.assertTrue('floating_ip' in view)
         self.assertTrue(view['floating_ip']['id'])
@@ -188,11 +197,14 @@ class FloatingIpTest(test.TestCase):
 
     def test_show_associated_floating_ip(self):
         def get_floating_ip(self, context, id):
-            return {'id': 1, 'address': '10.10.10.10',
-                    'pool': 'nova',
-                    'fixed_ip': {'address': '10.0.0.1',
-                                 'instance': {'uuid': FAKE_UUID}}}
+            return {'id': 1, 'address': '10.10.10.10', 'pool': 'nova',
+                    'fixed_ip_id': 11}
+
+        def get_fixed_ip(self, context, id):
+            return {'address': '10.0.0.1', 'instance_id': 1}
+
         self.stubs.Set(network.api.API, "get_floating_ip", get_floating_ip)
+        self.stubs.Set(network.api.API, "get_fixed_ip", get_fixed_ip)
 
         req = fakes.HTTPRequest.blank('/v2/fake/os-floating-ips/1')
         res_dict = self.controller.show(req, 1)
@@ -247,13 +259,13 @@ class FloatingIpTest(test.TestCase):
         body = dict(addFloatingIp=dict(address=self.floating_ip))
 
         req = fakes.HTTPRequest.blank('/v2/fake/servers/test_inst/action')
-        self.manager._add_floating_ip(body, req, 'test_inst')
+        self.manager._add_floating_ip(req, 'test_inst', body)
 
     def test_floating_ip_disassociate(self):
         body = dict(removeFloatingIp=dict(address='10.10.10.10'))
 
         req = fakes.HTTPRequest.blank('/v2/fake/servers/test_inst/action')
-        self.manager._remove_floating_ip(body, req, 'test_inst')
+        self.manager._remove_floating_ip(req, 'test_inst', body)
 
 # these are a few bad param tests
 
@@ -262,24 +274,24 @@ class FloatingIpTest(test.TestCase):
 
         req = fakes.HTTPRequest.blank('/v2/fake/servers/test_inst/action')
         self.assertRaises(webob.exc.HTTPBadRequest,
-                          self.manager._add_floating_ip, body, req,
-                          'test_inst')
+                          self.manager._add_floating_ip, req, 'test_inst',
+                          body)
 
     def test_missing_dict_param_in_remove_floating_ip(self):
         body = dict(removeFloatingIp='11.0.0.1')
 
         req = fakes.HTTPRequest.blank('/v2/fake/servers/test_inst/action')
         self.assertRaises(webob.exc.HTTPBadRequest,
-                          self.manager._remove_floating_ip, body, req,
-                          'test_inst')
+                          self.manager._remove_floating_ip, req, 'test_inst',
+                          body)
 
     def test_missing_dict_param_in_add_floating_ip(self):
         body = dict(addFloatingIp='11.0.0.1')
 
         req = fakes.HTTPRequest.blank('/v2/fake/servers/test_inst/action')
         self.assertRaises(webob.exc.HTTPBadRequest,
-                          self.manager._add_floating_ip, body, req,
-                          'test_inst')
+                          self.manager._add_floating_ip, req, 'test_inst',
+                          body)
 
 
 class FloatingIpSerializerTest(test.TestCase):

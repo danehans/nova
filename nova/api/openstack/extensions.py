@@ -578,22 +578,11 @@ class ExtensionsXMLSerializer(xmlutil.XMLTemplateSerializer):
         return ExtensionTemplate()
 
 
-def require_admin(f):
-    @functools.wraps(f)
-    def wraps(self, req, *args, **kwargs):
-        if 'nova.context' in req.environ and\
-           req.environ['nova.context'].is_admin:
-            return f(self, req, *args, **kwargs)
-        else:
-            raise exception.AdminRequired()
-    return wraps
-
-
 def wrap_errors(fn):
     """Ensure errors are not passed along."""
-    def wrapped(*args):
+    def wrapped(*args, **kwargs):
         try:
-            return fn(*args)
+            return fn(*args, **kwargs)
         except Exception, e:
             raise webob.exc.HTTPInternalServerError()
     return wrapped

@@ -19,9 +19,9 @@
 
 import webob
 
+from nova.api.openstack import extensions
 from nova.api.openstack import wsgi
 from nova.api.openstack import xmlutil
-from nova.api.openstack import extensions
 from nova import compute
 from nova import exception
 from nova import log as logging
@@ -68,7 +68,7 @@ def _translate_floating_ip_view(floating_ip):
     except (TypeError, KeyError):
         result['fixed_ip'] = None
     try:
-        result['instance_id'] = floating_ip['fixed_ip']['instance']['uuid']
+        result['instance_id'] = floating_ip['instance']['uuid']
     except (TypeError, KeyError):
         result['instance_id'] = None
     return {'floating_ip': result}
@@ -83,8 +83,34 @@ class FloatingIPController(object):
     """The Floating IPs API controller for the OpenStack API."""
 
     def __init__(self):
+        self.compute_api = compute.API()
         self.network_api = network.API()
         super(FloatingIPController, self).__init__()
+
+    def _get_fixed_ip(self, context, fixed_ip_id):
+        if fixed_ip_id is None:
+            return None
+        try:
+            return self.network_api.get_fixed_ip(context, fixed_ip_id)
+        except exception.FixedIpNotFound:
+            return None
+
+    def _get_instance(self, context, instance_id):
+        return self.compute_api.get(context, instance_id)
+
+    def _set_metadata(self, context, floating_ip):
+        fixed_ip_id = floating_ip['fixed_ip_id']
+        floating_ip['fixed_ip'] = self._get_fixed_ip(context,
+                                                     fixed_ip_id)
+        instance_id = None
+        if floating_ip['fixed_ip']:
+            instance_id = floating_ip['fixed_ip']['instance_id']
+
+        if instance_id:
+            floating_ip['instance'] = self._get_instance(context,
+                                                         instance_id)
+        else:
+            floating_ip['instance'] = None
 
     @wsgi.serializers(xml=FloatingIPTemplate)
     def show(self, req, id):
@@ -96,6 +122,8 @@ class FloatingIPController(object):
         except exception.NotFound:
             raise webob.exc.HTTPNotFound()
 
+        self._set_metadata(context, floating_ip)
+
         return _translate_floating_ip_view(floating_ip)
 
     @wsgi.serializers(xml=FloatingIPsTemplate)
@@ -104,6 +132,9 @@ class FloatingIPController(object):
         context = req.environ['nova.context']
 
         floating_ips = self.network_api.get_floating_ips_by_project(context)
+
+        for floating_ip in floating_ips:
+            self._set_metadata(context, floating_ip)
 
         return _translate_floating_ips_view(floating_ips)
 
@@ -134,7 +165,7 @@ class FloatingIPController(object):
         context = req.environ['nova.context']
         floating_ip = self.network_api.get_floating_ip(context, id)
 
-        if floating_ip.get('fixed_ip'):
+        if floating_ip.get('fixed_ip_id'):
             self.network_api.disassociate_floating_ip(context,
                                                       floating_ip['address'])
 
@@ -147,33 +178,19 @@ class FloatingIPController(object):
         return self.network_api.get_floating_ip(context, value)['address']
 
 
-class FloatingIPSerializer(xmlutil.XMLTemplateSerializer):
-    def index(self):
-        return FloatingIPsTemplate()
-
-    def default(self):
-        return FloatingIPTemplate()
-
-
-class Floating_ips(extensions.ExtensionDescriptor):
-    """Floating IPs support"""
-
-    name = "Floating_ips"
-    alias = "os-floating-ips"
-    namespace = "http://docs.openstack.org/compute/ext/floating_ips/api/v1.1"
-    updated = "2011-06-16T00:00:00+00:00"
-
-    def __init__(self, ext_mgr):
+class FloatingIPActionController(wsgi.Controller):
+    def __init__(self, *args, **kwargs):
+        super(FloatingIPActionController, self).__init__(*args, **kwargs)
         self.compute_api = compute.API()
         self.network_api = network.API()
-        super(Floating_ips, self).__init__(ext_mgr)
 
-    def _add_floating_ip(self, input_dict, req, instance_id):
+    @wsgi.action('addFloatingIp')
+    def _add_floating_ip(self, req, id, body):
         """Associate floating_ip to an instance."""
         context = req.environ['nova.context']
 
         try:
-            address = input_dict['addFloatingIp']['address']
+            address = body['addFloatingIp']['address']
         except TypeError:
             msg = _("Missing parameter dict")
             raise webob.exc.HTTPBadRequest(explanation=msg)
@@ -182,7 +199,7 @@ class Floating_ips(extensions.ExtensionDescriptor):
             raise webob.exc.HTTPBadRequest(explanation=msg)
 
         try:
-            instance = self.compute_api.get(context, instance_id)
+            instance = self.compute_api.get(context, id)
             self.compute_api.associate_floating_ip(context, instance,
                                                    address)
         except exception.ApiError, e:
@@ -192,12 +209,13 @@ class Floating_ips(extensions.ExtensionDescriptor):
 
         return webob.Response(status_int=202)
 
-    def _remove_floating_ip(self, input_dict, req, instance_id):
+    @wsgi.action('removeFloatingIp')
+    def _remove_floating_ip(self, req, id, body):
         """Dissociate floating_ip from an instance."""
         context = req.environ['nova.context']
 
         try:
-            address = input_dict['removeFloatingIp']['address']
+            address = body['removeFloatingIp']['address']
         except TypeError:
             msg = _("Missing parameter dict")
             raise webob.exc.HTTPBadRequest(explanation=msg)
@@ -207,13 +225,22 @@ class Floating_ips(extensions.ExtensionDescriptor):
 
         floating_ip = self.network_api.get_floating_ip_by_address(context,
                                                                   address)
-        if floating_ip.get('fixed_ip'):
+        if floating_ip.get('fixed_ip_id'):
             try:
                 self.network_api.disassociate_floating_ip(context, address)
             except exception.NotAuthorized, e:
                 raise webob.exc.HTTPUnauthorized()
 
         return webob.Response(status_int=202)
+
+
+class Floating_ips(extensions.ExtensionDescriptor):
+    """Floating IPs support"""
+
+    name = "Floating_ips"
+    alias = "os-floating-ips"
+    namespace = "http://docs.openstack.org/compute/ext/floating_ips/api/v1.1"
+    updated = "2011-06-16T00:00:00+00:00"
 
     def get_resources(self):
         resources = []
@@ -225,13 +252,7 @@ class Floating_ips(extensions.ExtensionDescriptor):
 
         return resources
 
-    def get_actions(self):
-        """Return the actions the extension adds, as required by contract."""
-        actions = [
-                extensions.ActionExtension("servers", "addFloatingIp",
-                                            self._add_floating_ip),
-                extensions.ActionExtension("servers", "removeFloatingIp",
-                                            self._remove_floating_ip),
-        ]
-
-        return actions
+    def get_controller_extensions(self):
+        controller = FloatingIPActionController()
+        extension = extensions.ControllerExtension(self, 'servers', controller)
+        return [extension]
