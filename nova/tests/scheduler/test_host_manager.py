@@ -267,11 +267,20 @@ class HostManagerTestCase(test.TestCase):
         topic = 'compute'
 
         self.mox.StubOutWithMock(db, 'compute_node_get_all')
+        self.mox.StubOutWithMock(utils, 'service_is_up')
         self.mox.StubOutWithMock(logging, 'warn')
         self.mox.StubOutWithMock(db, 'instance_get_all')
 
         db.compute_node_get_all(context).AndReturn(fakes.COMPUTE_NODES)
         # Invalid service
+        utils.service_is_up(
+                fakes.COMPUTE_NODES[0]['service']).AndReturn(True)
+        utils.service_is_up(
+                fakes.COMPUTE_NODES[1]['service']).AndReturn(False)
+        utils.service_is_up(
+                fakes.COMPUTE_NODES[2]['service']).AndReturn(True)
+        utils.service_is_up(
+                fakes.COMPUTE_NODES[3]['service']).AndReturn(True)
         logging.warn("No service for compute ID 5")
         db.instance_get_all(context).AndReturn(fakes.INSTANCES)
 
@@ -279,13 +288,10 @@ class HostManagerTestCase(test.TestCase):
         host_states = self.host_manager.get_all_host_states(context, topic)
         self.mox.VerifyAll()
 
-        self.assertEqual(len(host_states), 4)
+        self.assertEqual(len(host_states), 3)
         self.assertEqual(host_states['host1'].free_ram_mb, 0)
         # 511GB
         self.assertEqual(host_states['host1'].free_disk_mb, 523264)
-        self.assertEqual(host_states['host2'].free_ram_mb, 512)
-        # 1023GB
-        self.assertEqual(host_states['host2'].free_disk_mb, 1047552)
         self.assertEqual(host_states['host3'].free_ram_mb, 2560)
         # 3071GB
         self.assertEqual(host_states['host3'].free_disk_mb, 3144704)
