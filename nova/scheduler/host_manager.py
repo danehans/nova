@@ -290,6 +290,8 @@ class HostManager(object):
             if not service:
                 logging.warn(_("No service for compute ID %s") % compute['id'])
                 continue
+            if not utils.service_is_up(service):
+                continue
             host = service['host']
             capabilities = self.service_states.get(host, None)
             host_state = self.host_state_cls(host, topic,
