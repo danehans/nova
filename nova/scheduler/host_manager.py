@@ -32,7 +32,7 @@ flags.DEFINE_integer('reserved_host_disk_mb', 0,
         'Amount of disk in MB to reserve for host/dom0')
 flags.DEFINE_integer('reserved_host_memory_mb', 512,
         'Amount of memory in MB to reserve for host/dom0')
-flags.DEFINE_list('default_host_filters', ['InstanceTypeFilter'],
+flags.DEFINE_list('default_host_filters', ['ComputeFilter'],
         'Which filters to use for filtering hosts when not specified '
         'in the request.')
 
@@ -147,7 +147,7 @@ class HostManager(object):
                 and issubclass(get_itm(itm), filters.AbstractHostFilter)
                 and get_itm(itm) is not filters.AbstractHostFilter]
 
-    def _choose_host_filters(self, topic, filters):
+    def _choose_host_filters(self, filters):
         """Since the caller may specify which filters to use we need
         to have an authoritative list of what is permissible. This
         function checks the filter names against a predefined set
@@ -165,9 +165,9 @@ class HostManager(object):
                 if cls.__name__ == filter_name:
                     found_class = True
                     filter_instance = cls()
-                    # Get the filter function for correct topic
+                    # Get the filter function
                     filter_func = getattr(filter_instance,
-                            '%s_host_passes' % topic, None)
+                            'host_passes', None)
                     if filter_func:
                         good_filters.append(filter_func)
                     break
@@ -178,10 +178,10 @@ class HostManager(object):
             raise exception.SchedulerHostFilterNotFound(filter_name=msg)
         return good_filters
 
-    def filter_hosts(self, hosts, topic, filter_properties, filters=None):
+    def filter_hosts(self, hosts, filter_properties, filters=None):
         """Filter hosts and return only ones passing all filters"""
         filtered_hosts = []
-        filter_fns = self._choose_host_filters(topic, filters)
+        filter_fns = self._choose_host_filters(filters)
         for host in hosts:
             if host.passes_filters(filter_fns, filter_properties):
                 filtered_hosts.append(host)

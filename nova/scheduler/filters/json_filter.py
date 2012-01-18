@@ -124,7 +124,7 @@ class JsonFilter(abstract_filter.AbstractHostFilter):
         result = method(self, cooked_args)
         return result
 
-    def compute_host_passes(self, host_state, filter_properties):
+    def host_passes(self, host_state, filter_properties):
         """Return a list of hosts that can fulfill the requirements
         specified in the query.
         """

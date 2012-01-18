@@ -35,51 +35,67 @@ class HostFiltersTestCase(test.TestCase):
     def test_all_host_filter(self):
         filt_cls = filters.AllHostsFilter()
         host = fakes.FakeHostState('host1', 'compute', {})
-        self.assertTrue(filt_cls.compute_host_passes(host, {}))
+        self.assertTrue(filt_cls.host_passes(host, {}))
 
-    def test_instance_type_filter_passes(self):
-        filt_cls = filters.InstanceTypeFilter()
+    def test_compute_filter_passes(self):
+        filt_cls = filters.ComputeFilter()
         filter_properties = {'instance_type': {'memory_mb': 1024}}
         capabilities = {'enabled': True}
         host = fakes.FakeHostState('host1', 'compute',
                 {'free_ram_mb': 1024, 'capabilities': capabilities})
-        self.assertTrue(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertTrue(filt_cls.host_passes(host, filter_properties))
 
-    def test_instance_type_filter_fails_on_memory(self):
-        filt_cls = filters.InstanceTypeFilter()
+    def test_compute_filter_fails_on_memory(self):
+        filt_cls = filters.ComputeFilter()
         filter_properties = {'instance_type': {'memory_mb': 1024}}
         capabilities = {'enabled': True}
         host = fakes.FakeHostState('host1', 'compute',
                 {'free_ram_mb': 1023, 'capabilities': capabilities})
-        self.assertFalse(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertFalse(filt_cls.host_passes(host, filter_properties))
 
-    def test_instance_type_filter_fails_on_disabled(self):
-        filt_cls = filters.InstanceTypeFilter()
+    def test_compute_filter_fails_on_disabled(self):
+        filt_cls = filters.ComputeFilter()
         filter_properties = {'instance_type': {'memory_mb': 1024}}
         capabilities = {'enabled': False}
         host = fakes.FakeHostState('host1', 'compute',
                 {'free_ram_mb': 1024, 'capabilities': capabilities})
-        self.assertFalse(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertFalse(filt_cls.host_passes(host, filter_properties))
 
-    def test_instance_type_filter_passes_extra_specs(self):
-        filt_cls = filters.InstanceTypeFilter()
+    def test_compute_filter_passes_on_volume(self):
+        filt_cls = filters.ComputeFilter()
+        filter_properties = {'instance_type': {'memory_mb': 1024}}
+        capabilities = {'enabled': False}
+        host = fakes.FakeHostState('host1', 'volume',
+                {'free_ram_mb': 1024, 'capabilities': capabilities})
+        self.assertTrue(filt_cls.host_passes(host, filter_properties))
+
+    def test_compute_filter_passes_on_no_instance_type(self):
+        filt_cls = filters.ComputeFilter()
+        filter_properties = {}
+        capabilities = {'enabled': False}
+        host = fakes.FakeHostState('host1', 'compute',
+                {'free_ram_mb': 1024, 'capabilities': capabilities})
+        self.assertTrue(filt_cls.host_passes(host, filter_properties))
+
+    def test_compute_filter_passes_extra_specs(self):
+        filt_cls = filters.ComputeFilter()
         extra_specs = {'opt1': 1, 'opt2': 2}
         capabilities = {'enabled': True, 'opt1': 1, 'opt2': 2}
         filter_properties = {'instance_type': {'memory_mb': 1024,
                                                'extra_specs': extra_specs}}
         host = fakes.FakeHostState('host1', 'compute',
                 {'free_ram_mb': 1024, 'capabilities': capabilities})
-        self.assertTrue(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertTrue(filt_cls.host_passes(host, filter_properties))
 
-    def test_instance_type_filter_fails_extra_specs(self):
-        filt_cls = filters.InstanceTypeFilter()
+    def test_compute_filter_fails_extra_specs(self):
+        filt_cls = filters.ComputeFilter()
         extra_specs = {'opt1': 1, 'opt2': 3}
         capabilities = {'enabled': True, 'opt1': 1, 'opt2': 2}
         filter_properties = {'instance_type': {'memory_mb': 1024,
                                                'extra_specs': extra_specs}}
         host = fakes.FakeHostState('host1', 'compute',
                 {'free_ram_mb': 1024, 'capabilities': capabilities})
-        self.assertFalse(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertFalse(filt_cls.host_passes(host, filter_properties))
 
     def test_json_filter_passes(self):
         filt_cls = filters.JsonFilter()
@@ -91,7 +107,7 @@ class HostFiltersTestCase(test.TestCase):
                 {'free_ram_mb': 1024,
                  'free_disk_mb': 200 * 1024,
                  'capabilities': capabilities})
-        self.assertTrue(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertTrue(filt_cls.host_passes(host, filter_properties))
 
     def test_json_filter_passes_with_no_query(self):
         filt_cls = filters.JsonFilter()
@@ -102,7 +118,7 @@ class HostFiltersTestCase(test.TestCase):
                 {'free_ram_mb': 0,
                  'free_disk_mb': 0,
                  'capabilities': capabilities})
-        self.assertTrue(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertTrue(filt_cls.host_passes(host, filter_properties))
 
     def test_json_filter_fails_on_memory(self):
         filt_cls = filters.JsonFilter()
@@ -114,7 +130,7 @@ class HostFiltersTestCase(test.TestCase):
                 {'free_ram_mb': 1023,
                  'free_disk_mb': 200 * 1024,
                  'capabilities': capabilities})
-        self.assertFalse(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertFalse(filt_cls.host_passes(host, filter_properties))
 
     def test_json_filter_fails_on_disk(self):
         filt_cls = filters.JsonFilter()
@@ -126,7 +142,7 @@ class HostFiltersTestCase(test.TestCase):
                 {'free_ram_mb': 1024,
                  'free_disk_mb': (200 * 1024) - 1,
                  'capabilities': capabilities})
-        self.assertFalse(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertFalse(filt_cls.host_passes(host, filter_properties))
 
     def test_json_filter_fails_on_disk(self):
         filt_cls = filters.JsonFilter()
@@ -138,7 +154,7 @@ class HostFiltersTestCase(test.TestCase):
                 {'free_ram_mb': 1024,
                  'free_disk_mb': (200 * 1024) - 1,
                  'capabilities': capabilities})
-        self.assertFalse(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertFalse(filt_cls.host_passes(host, filter_properties))
 
     def test_json_filter_fails_on_disabled(self):
         filt_cls = filters.JsonFilter()
@@ -150,7 +166,7 @@ class HostFiltersTestCase(test.TestCase):
                 {'free_ram_mb': 1024,
                  'free_disk_mb': 200 * 1024,
                  'capabilities': capabilities})
-        self.assertFalse(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertFalse(filt_cls.host_passes(host, filter_properties))
 
     def test_json_filter_happy_day(self):
         """Test json filter more thoroughly"""
@@ -172,7 +188,7 @@ class HostFiltersTestCase(test.TestCase):
                 {'free_ram_mb': 10,
                  'free_disk_mb': 200,
                  'capabilities': capabilities})
-        self.assertTrue(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertTrue(filt_cls.host_passes(host, filter_properties))
 
         # Passes
         capabilities = {'enabled': True, 'opt1': 'match'}
@@ -180,15 +196,15 @@ class HostFiltersTestCase(test.TestCase):
                 {'free_ram_mb': 40,
                  'free_disk_mb': 400,
                  'capabilities': capabilities})
-        self.assertTrue(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertTrue(filt_cls.host_passes(host, filter_properties))
 
         # Failes due to disabled
         capabilities = {'enabled': False, 'opt1': 'match'}
-        host = fakes.FakeHostState('host1', 'compute',
+        host = fakes.FakeHostState('host1', 'instance_type',
                 {'free_ram_mb': 40,
                  'free_disk_mb': 400,
                  'capabilities': capabilities})
-        self.assertFalse(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertFalse(filt_cls.host_passes(host, filter_properties))
 
         # Fails due to being exact memory/disk we don't want
         capabilities = {'enabled': True, 'opt1': 'match'}
@@ -196,7 +212,7 @@ class HostFiltersTestCase(test.TestCase):
                 {'free_ram_mb': 30,
                  'free_disk_mb': 300,
                  'capabilities': capabilities})
-        self.assertFalse(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertFalse(filt_cls.host_passes(host, filter_properties))
 
         # Fails due to memory lower but disk higher
         capabilities = {'enabled': True, 'opt1': 'match'}
@@ -204,7 +220,7 @@ class HostFiltersTestCase(test.TestCase):
                 {'free_ram_mb': 20,
                  'free_disk_mb': 400,
                  'capabilities': capabilities})
-        self.assertFalse(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertFalse(filt_cls.host_passes(host, filter_properties))
 
         # Fails due to capabilities 'opt1' not equal
         capabilities = {'enabled': True, 'opt1': 'no-match'}
@@ -212,7 +228,7 @@ class HostFiltersTestCase(test.TestCase):
                 {'free_ram_mb': 20,
                  'free_disk_mb': 400,
                  'capabilities': capabilities})
-        self.assertFalse(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertFalse(filt_cls.host_passes(host, filter_properties))
 
     def test_json_filter_basic_operators(self):
         filt_cls = filters.JsonFilter()
@@ -251,19 +267,19 @@ class HostFiltersTestCase(test.TestCase):
             raw = [op] + args
             filter_properties = {'query': json.dumps(raw)}
             self.assertEqual(expected,
-                    filt_cls.compute_host_passes(host, filter_properties))
+                    filt_cls.host_passes(host, filter_properties))
 
         # This results in [False, True, False, True] and if any are True
         # then it passes...
         raw = ['not', True, False, True, False]
         filter_properties = {'query': json.dumps(raw)}
-        self.assertTrue(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertTrue(filt_cls.host_passes(host, filter_properties))
 
         # This results in [False, False, False] and if any are True
         # then it passes...which this doesn't
         raw = ['not', True, True, True]
         filter_properties = {'query': json.dumps(raw)}
-        self.assertFalse(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertFalse(filt_cls.host_passes(host, filter_properties))
 
     def test_json_filter_unknown_operator_raises(self):
         filt_cls = filters.JsonFilter()
@@ -273,7 +289,7 @@ class HostFiltersTestCase(test.TestCase):
         host = fakes.FakeHostState('host1', 'compute',
                 {'capabilities': {'enabled': True}})
         self.assertRaises(KeyError,
-                filt_cls.compute_host_passes, host, filter_properties)
+                filt_cls.host_passes, host, filter_properties)
 
     def test_json_filter_empty_filters_pass(self):
         filt_cls = filters.JsonFilter()
@@ -283,10 +299,10 @@ class HostFiltersTestCase(test.TestCase):
 
         raw = []
         filter_properties = {'query': json.dumps(raw)}
-        self.assertTrue(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertTrue(filt_cls.host_passes(host, filter_properties))
         raw = {}
         filter_properties = {'query': json.dumps(raw)}
-        self.assertTrue(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertTrue(filt_cls.host_passes(host, filter_properties))
 
     def test_json_filter_invalid_num_arguments_fails(self):
         filt_cls = filters.JsonFilter()
@@ -296,11 +312,11 @@ class HostFiltersTestCase(test.TestCase):
 
         raw = ['>', ['and', ['or', ['not', ['<', ['>=', ['<=', ['in', ]]]]]]]]
         filter_properties = {'query': json.dumps(raw)}
-        self.assertFalse(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertFalse(filt_cls.host_passes(host, filter_properties))
 
         raw = ['>', 1]
         filter_properties = {'query': json.dumps(raw)}
-        self.assertFalse(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertFalse(filt_cls.host_passes(host, filter_properties))
 
     def test_json_filter_unknown_variable_ignored(self):
         filt_cls = filters.JsonFilter()
@@ -310,8 +326,8 @@ class HostFiltersTestCase(test.TestCase):
 
         raw = ['=', '$........', 1, 1]
         filter_properties = {'query': json.dumps(raw)}
-        self.assertTrue(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertTrue(filt_cls.host_passes(host, filter_properties))
 
         raw = ['=', '$foo', 2, 2]
         filter_properties = {'query': json.dumps(raw)}
-        self.assertTrue(filt_cls.compute_host_passes(host, filter_properties))
+        self.assertTrue(filt_cls.host_passes(host, filter_properties))

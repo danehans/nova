@@ -17,10 +17,10 @@ from nova import log as logging
 from nova.scheduler.filters import abstract_filter
 
 
-LOG = logging.getLogger('nova.scheduler.filter.instance_type_filter')
+LOG = logging.getLogger('nova.scheduler.filter.compute_filter')
 
 
-class InstanceTypeFilter(abstract_filter.AbstractHostFilter):
+class ComputeFilter(abstract_filter.AbstractHostFilter):
     """HostFilter hard-coded to work with InstanceType records."""
 
     def _satisfies_extra_specs(self, capabilities, instance_type):
@@ -46,9 +46,11 @@ class InstanceTypeFilter(abstract_filter.AbstractHostFilter):
         free_ram_mb = host_state.free_ram_mb
         return free_ram_mb >= requested_ram
 
-    def compute_host_passes(self, host_state, filter_properties):
+    def host_passes(self, host_state, filter_properties):
         """Return a list of hosts that can create instance_type."""
-        instance_type = filter_properties['instance_type']
+        instance_type = filter_properties.get('instance_type')
+        if host_state.topic != 'compute' or not instance_type:
+            return True
         capabilities = host_state.capabilities or {}
 
         if not self._basic_ram_filter(host_state, instance_type):

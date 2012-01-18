@@ -15,20 +15,10 @@
 
 
 class AbstractHostFilter(object):
-    """Base class for host filters.
+    """Base class for host filters."""
 
-    Default behavior is to do no filtering.  In subclasses, you may
-    define a filter function '<topic>_host_passes' where '<topic>'
-    is 'compute', 'volume', etc.
-
-    Example:
-
-    def compute_host_passes(self, host_state, filter_properties):
-        return host_state.host.startswith('foo')
-
-    That means that for compute filtering, only hosts that start with
-    the string 'foo' will pass.
-    """
+    def host_passes(self, host_state, filter_properties):
+        return True
 
     def _full_name(self):
         """module.classname of the filter."""

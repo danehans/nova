@@ -66,7 +66,7 @@ def fake_zone_get_all(context):
     ]
 
 
-def fake_filter_hosts(hosts, topic, filter_properties):
+def fake_filter_hosts(hosts, filter_properties):
     return list(hosts)
 
 
