@@ -1403,9 +1403,7 @@ warnings.showwarning = _showwarning
 
 def service_is_up(service):
     """Check whether a service is up based on last heartbeat."""
-    if not service['disabled']:
-        return False
     last_heartbeat = service['updated_at'] or service['created_at']
     # Timestamps in DB are UTC.
-    elapsed = utils.total_seconds(utils.utcnow() - last_heartbeat)
+    elapsed = total_seconds(utcnow() - last_heartbeat)
     return abs(elapsed) <= FLAGS.service_down_time

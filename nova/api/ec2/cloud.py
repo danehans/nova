@@ -289,7 +289,8 @@ class CloudController(object):
             hsvcs = [service for service in services \
                      if service['host'] == host]
             for svc in hsvcs:
-                art = (utils.service_is_up(svc) and ":-)") or "XXX"
+                alive = utils.service_is_up(svc)
+                art = (alive and ":-)") or "XXX"
                 active = 'enabled'
                 if svc['disabled']:
                     active = 'disabled'

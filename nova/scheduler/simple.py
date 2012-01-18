@@ -80,7 +80,7 @@ class SimpleScheduler(chance.ChanceScheduler):
                     instance_cores + instance_opts['vcpus'] > FLAGS.max_cores:
                 msg = _("Not enough allocatable CPU cores remaining")
                 raise exception.NoValidHost(reason=msg)
-            if utils.service_is_up(service):
+            if utils.service_is_up(service) and not service['disabled']:
                 return service['host']
         msg = _("Is the appropriate service running?")
         raise exception.NoValidHost(reason=msg)
@@ -136,7 +136,7 @@ class SimpleScheduler(chance.ChanceScheduler):
             if volume_gigabytes + volume_ref['size'] > FLAGS.max_gigabytes:
                 msg = _("Not enough allocatable volume gigabytes remaining")
                 raise exception.NoValidHost(reason=msg)
-            if utils.service_is_up(service):
+            if utils.service_is_up(service) and not service['disabled']:
                 driver.cast_to_volume_host(context, service['host'],
                         'create_volume', volume_id=volume_id, **_kwargs)
                 return None

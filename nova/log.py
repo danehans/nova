@@ -365,6 +365,7 @@ logging.setLoggerClass(NovaLogger)
 
 def audit(msg, *args, **kwargs):
     """Shortcut for logging to root log with severity 'AUDIT'."""
+    setup()
     logging.root.audit(msg, *args, **kwargs)
 
 

@@ -77,7 +77,7 @@ class HostState(object):
     previously used and lock down access.
     """
 
-    def __init__(self, host, topic, capabilities=None):
+    def __init__(self, host, topic, capabilities=None, service=None):
         self.host = host
         self.topic = topic
 
@@ -86,6 +86,9 @@ class HostState(object):
         if capabilities is None:
             capabilities = {}
         self.capabilities = ReadOnlyDict(capabilities.get(topic, None))
+        if service is None:
+            service = {}
+        self.service = ReadOnlyDict(service)
         # Mutable available resources.
         # These will change as resources are virtually "consumed".
         self.free_ram_mb = 0
@@ -290,12 +293,13 @@ class HostManager(object):
             if not service:
                 logging.warn(_("No service for compute ID %s") % compute['id'])
                 continue
-            if not utils.service_is_up(service):
+            if not utils.service_is_up(service) or service['disabled']:
                 continue
             host = service['host']
             capabilities = self.service_states.get(host, None)
             host_state = self.host_state_cls(host, topic,
-                    capabilities=capabilities)
+                    capabilities=capabilities,
+                    service=dict(service.iteritems()))
             host_state.update_from_compute_node(compute)
             host_state_map[host] = host_state
 
