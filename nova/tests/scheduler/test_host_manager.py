@@ -276,7 +276,7 @@ class HostManagerTestCase(test.TestCase):
         utils.service_is_up(
                 fakes.COMPUTE_NODES[0]['service']).AndReturn(True)
         utils.service_is_up(
-                fakes.COMPUTE_NODES[1]['service']).AndReturn(False)
+                fakes.COMPUTE_NODES[1]['service']).AndReturn(True)
         utils.service_is_up(
                 fakes.COMPUTE_NODES[2]['service']).AndReturn(True)
         utils.service_is_up(
@@ -288,6 +288,8 @@ class HostManagerTestCase(test.TestCase):
         host_states = self.host_manager.get_all_host_states(context, topic)
         self.mox.VerifyAll()
 
+        # Note that while return that 'host2' is up above, it is set
+        # to disabled in fakes.  So, it shouldn't be returned here.
         self.assertEqual(len(host_states), 3)
         self.assertEqual(host_states['host1'].free_ram_mb, 0)
         # 511GB
