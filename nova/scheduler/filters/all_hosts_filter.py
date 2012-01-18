@@ -1,4 +1,4 @@
-# Copyright (c) 2011 Openstack, LLC.
+# Copyright (c) 2011-2012 Openstack, LLC.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -20,11 +20,5 @@ import abstract_filter
 class AllHostsFilter(abstract_filter.AbstractHostFilter):
     """NOP host filter. Returns all hosts."""
 
-    def compute_host_passes(self, host_state, filter_properties):
-        return True
-
-    def volume_host_passes(self, host_state, filter_properties):
-        return True
-
-    def network_host_passes(self, host_state, filter_properties):
+    def host_passes(self, host_state, filter_properties):
         return True

@@ -331,7 +331,7 @@ class DistributedScheduler(driver.Scheduler):
         selected_hosts = []
         for num in xrange(num_instances):
             # Filter local hosts based on requirements ...
-            hosts = self.host_manager.filter_hosts(hosts, topic,
+            hosts = self.host_manager.filter_hosts(hosts,
                     filter_properties)
             if not hosts:
                 # Can't get any more locally.

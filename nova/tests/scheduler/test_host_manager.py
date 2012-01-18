@@ -30,17 +30,12 @@ from nova import utils
 
 
 class ComputeFilterClass1(object):
-    def compute_host_passes(self, *args, **kwargs):
+    def host_passes(self, *args, **kwargs):
         pass
 
 
 class ComputeFilterClass2(object):
-    def compute_host_passes(self, *args, **kwargs):
-        pass
-
-
-class VolumeFilterClass(object):
-    def volume_host_passes(self, *args, **kwargs):
+    def host_passes(self, *args, **kwargs):
         pass
 
 
@@ -54,30 +49,20 @@ class HostManagerTestCase(test.TestCase):
     def test_choose_host_filters_not_found(self):
         self.flags(default_host_filters='ComputeFilterClass3')
         self.host_manager.filter_classes = [ComputeFilterClass1,
-                ComputeFilterClass2, VolumeFilterClass]
+                ComputeFilterClass2]
         self.assertRaises(exception.SchedulerHostFilterNotFound,
-                self.host_manager._choose_host_filters, 'compute', None)
+                self.host_manager._choose_host_filters, None)
 
     def test_choose_host_filters(self):
-        self.flags(default_host_filters=['ComputeFilterClass1',
-                                         'ComputeFilterClass2',
-                                         'VolumeFilterClass'])
+        self.flags(default_host_filters=['ComputeFilterClass2'])
         self.host_manager.filter_classes = [ComputeFilterClass1,
-                ComputeFilterClass2, VolumeFilterClass]
+                ComputeFilterClass2]
 
-        # Test 'compute' returns 2 correct functions
-        filter_fns = self.host_manager._choose_host_filters('compute', None)
-        self.assertEqual(len(filter_fns), 2)
-        self.assertEqual(filter_fns[0].__func__,
-                ComputeFilterClass1.compute_host_passes.__func__)
-        self.assertEqual(filter_fns[1].__func__,
-                ComputeFilterClass2.compute_host_passes.__func__)
-
-        # Test 'volume' returns 1 correct function
-        filter_fns = self.host_manager._choose_host_filters('volume', None)
+        # Test 'compute' returns 1 correct function
+        filter_fns = self.host_manager._choose_host_filters(None)
         self.assertEqual(len(filter_fns), 1)
         self.assertEqual(filter_fns[0].__func__,
-                VolumeFilterClass.volume_host_passes.__func__)
+                ComputeFilterClass2.host_passes.__func__)
 
     def test_filter_hosts(self):
         topic = 'fake_topic'
@@ -93,16 +78,15 @@ class HostManagerTestCase(test.TestCase):
         self.mox.StubOutWithMock(fake_host1, 'passes_filters')
         self.mox.StubOutWithMock(fake_host2, 'passes_filters')
 
-        self.host_manager._choose_host_filters(topic, None).AndReturn(
-                filters)
+        self.host_manager._choose_host_filters(None).AndReturn(filters)
         fake_host1.passes_filters(filters, filter_properties).AndReturn(
                 False)
         fake_host2.passes_filters(filters, filter_properties).AndReturn(
                 True)
 
         self.mox.ReplayAll()
-        filtered_hosts = self.host_manager.filter_hosts(hosts, topic,
-                filter_properties)
+        filtered_hosts = self.host_manager.filter_hosts(hosts,
+                filter_properties, filters=None)
         self.mox.VerifyAll()
         self.assertEqual(len(filtered_hosts), 1)
         self.assertEqual(filtered_hosts[0], fake_host2)
@@ -309,12 +293,12 @@ class HostStateTestCase(test.TestCase):
 
         cls1 = ComputeFilterClass1()
         cls2 = ComputeFilterClass2()
-        self.mox.StubOutWithMock(cls1, 'compute_host_passes')
-        self.mox.StubOutWithMock(cls2, 'compute_host_passes')
-        filter_fns = [cls1.compute_host_passes, cls2.compute_host_passes]
+        self.mox.StubOutWithMock(cls1, 'host_passes')
+        self.mox.StubOutWithMock(cls2, 'host_passes')
+        filter_fns = [cls1.host_passes, cls2.host_passes]
 
-        cls1.compute_host_passes(fake_host, filter_properties).AndReturn(True)
-        cls2.compute_host_passes(fake_host, filter_properties).AndReturn(True)
+        cls1.host_passes(fake_host, filter_properties).AndReturn(True)
+        cls2.host_passes(fake_host, filter_properties).AndReturn(True)
 
         self.mox.ReplayAll()
         result = fake_host.passes_filters(filter_fns, filter_properties)
@@ -327,12 +311,12 @@ class HostStateTestCase(test.TestCase):
 
         cls1 = ComputeFilterClass1()
         cls2 = ComputeFilterClass2()
-        self.mox.StubOutWithMock(cls1, 'compute_host_passes')
-        self.mox.StubOutWithMock(cls2, 'compute_host_passes')
-        filter_fns = [cls1.compute_host_passes, cls2.compute_host_passes]
+        self.mox.StubOutWithMock(cls1, 'host_passes')
+        self.mox.StubOutWithMock(cls2, 'host_passes')
+        filter_fns = [cls1.host_passes, cls2.host_passes]
 
-        cls1.compute_host_passes(fake_host, filter_properties).AndReturn(True)
-        cls2.compute_host_passes(fake_host, filter_properties).AndReturn(True)
+        cls1.host_passes(fake_host, filter_properties).AndReturn(True)
+        cls2.host_passes(fake_host, filter_properties).AndReturn(True)
 
         self.mox.ReplayAll()
         result = fake_host.passes_filters(filter_fns, filter_properties)
@@ -345,13 +329,12 @@ class HostStateTestCase(test.TestCase):
 
         cls1 = ComputeFilterClass1()
         cls2 = ComputeFilterClass2()
-        self.mox.StubOutWithMock(cls1, 'compute_host_passes')
-        self.mox.StubOutWithMock(cls2, 'compute_host_passes')
-        filter_fns = [cls1.compute_host_passes, cls2.compute_host_passes]
+        self.mox.StubOutWithMock(cls1, 'host_passes')
+        self.mox.StubOutWithMock(cls2, 'host_passes')
+        filter_fns = [cls1.host_passes, cls2.host_passes]
 
-        cls1.compute_host_passes(fake_host, filter_properties).AndReturn(
-                False)
-        # cls2.compute_host_passes() not called because of short circuit
+        cls1.host_passes(fake_host, filter_properties).AndReturn(False)
+        # cls2.host_passes() not called because of short circuit
 
         self.mox.ReplayAll()
         result = fake_host.passes_filters(filter_fns, filter_properties)
@@ -364,11 +347,11 @@ class HostStateTestCase(test.TestCase):
 
         cls1 = ComputeFilterClass1()
         cls2 = ComputeFilterClass2()
-        self.mox.StubOutWithMock(cls1, 'compute_host_passes')
-        self.mox.StubOutWithMock(cls2, 'compute_host_passes')
-        filter_fns = [cls1.compute_host_passes, cls2.compute_host_passes]
+        self.mox.StubOutWithMock(cls1, 'host_passes')
+        self.mox.StubOutWithMock(cls2, 'host_passes')
+        filter_fns = [cls1.host_passes, cls2.host_passes]
 
-        # cls[12].compute_host_passes() not called because of short circuit
+        # cls[12].host_passes() not called because of short circuit
         # with matching host to ignore
 
         self.mox.ReplayAll()
