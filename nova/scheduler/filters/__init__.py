@@ -31,6 +31,7 @@ InstanceType filter.
 """
 
 from abstract_filter import AbstractHostFilter
+from availability_zone_filter import AvailabilityZoneFilter
 from all_hosts_filter import AllHostsFilter
 from compute_filter import ComputeFilter
 from json_filter import JsonFilter

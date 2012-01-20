@@ -73,6 +73,10 @@ def fake_filter_hosts(hosts, filter_properties):
 class DistributedSchedulerTestCase(test.TestCase):
     """Test case for Distributed Scheduler."""
 
+    def setUp(self):
+        super(DistributedSchedulerTestCase, self).setUp()
+        self.context = context.RequestContext('user', 'project')
+
     def test_adjust_child_weights(self):
         """Make sure the weights returned by child zones are
         properly adjusted based on the scale/offset in the zone
@@ -104,11 +108,10 @@ class DistributedSchedulerTestCase(test.TestCase):
                        _fake_empty_call_zone_method)
         self.stubs.Set(db, 'zone_get_all', fake_zone_get_all)
 
-        fake_context = context.RequestContext('user', 'project')
         request_spec = {'instance_type': {'memory_mb': 1, 'local_gb': 1},
                         'instance_properties': {'project_id': 1}}
         self.assertRaises(exception.NoValidHost, sched.schedule_run_instance,
-                          fake_context, request_spec)
+                          self.context, request_spec)
 
     def test_run_instance_with_blob_hint(self):
         """
@@ -151,8 +154,7 @@ class DistributedSchedulerTestCase(test.TestCase):
                 'blob': "Non-None blob data",
             }
 
-        fake_context = context.RequestContext('user', 'project')
-        instances = sched.schedule_run_instance(fake_context, request_spec)
+        instances = sched.schedule_run_instance(self.context, request_spec)
         self.assertTrue(instances)
         self.assertFalse(self.schedule_called)
         self.assertTrue(self.from_blob_called)
@@ -160,38 +162,18 @@ class DistributedSchedulerTestCase(test.TestCase):
         self.assertFalse(self.locally_called)
         self.assertEquals(instances, [2])
 
-    def test_run_instance_non_admin(self):
-        """Test creating an instance locally using run_instance, passing
-        a non-admin context.  DB actions should work."""
-        self.was_admin = False
-
-        def fake_schedule(context, *args, **kwargs):
-            # make sure this is called with admin context, even though
-            # we're using user context below
-            self.was_admin = context.is_admin
-            return []
-
-        sched = fakes.FakeDistributedScheduler()
-        self.stubs.Set(sched, '_schedule', fake_schedule)
-
-        fake_context = context.RequestContext('user', 'project')
-
-        self.assertRaises(exception.NoValidHost, sched.schedule_run_instance,
-                          fake_context, {})
-        self.assertTrue(self.was_admin)
-
     def test_schedule_bad_topic(self):
         """Parameter checking."""
         sched = fakes.FakeDistributedScheduler()
-        self.assertRaises(NotImplementedError, sched._schedule, None, "foo",
-                          {})
+        self.assertRaises(NotImplementedError, sched._schedule,
+                self.context, "foo", {})
 
     def test_schedule_no_instance_type(self):
         """Parameter checking."""
         sched = fakes.FakeDistributedScheduler()
         request_spec = {'instance_properties': {}}
-        self.assertRaises(NotImplementedError, sched._schedule, None,
-                          "compute", request_spec=request_spec)
+        self.assertRaises(NotImplementedError, sched._schedule,
+                self.context, "compute", request_spec=request_spec)
 
     def test_schedule_happy_day(self):
         """Make sure there's nothing glaringly wrong with _schedule()
@@ -206,9 +188,6 @@ class DistributedSchedulerTestCase(test.TestCase):
                                            hostinfo=hostinfo)
 
         sched = fakes.FakeDistributedScheduler()
-        fake_context = context.RequestContext('user', 'project',
-                is_admin=True)
-
         self.stubs.Set(sched.host_manager, 'filter_hosts',
                 fake_filter_hosts)
         self.stubs.Set(least_cost, 'weighted_sum', _fake_weighted_sum)
@@ -219,7 +198,7 @@ class DistributedSchedulerTestCase(test.TestCase):
                         'instance_type': {'memory_mb': 512, 'local_gb': 512},
                         'instance_properties': {'project_id': 1}}
         self.mox.ReplayAll()
-        weighted_hosts = sched._schedule(fake_context, 'compute',
+        weighted_hosts = sched._schedule(self.context, 'compute',
                 request_spec)
         self.mox.VerifyAll()
         self.assertEquals(len(weighted_hosts), 10)
@@ -245,16 +224,20 @@ class DistributedSchedulerTestCase(test.TestCase):
             return least_cost.WeightedHost(self.next_weight, host_state=host)
 
         sched = fakes.FakeDistributedScheduler()
-        fake_context = context.RequestContext('user', 'project',
-                is_admin=True)
+        ctxt = context.RequestContext('user', 'project')
+        ctxt_elevated = ctxt.elevated()
 
-        fakes.mox_host_manager_db_calls(self.mox, fake_context)
+        def _fake_elevated():
+            return ctxt_elevated
 
+        self.stubs.Set(ctxt, 'elevated', _fake_elevated)
         self.stubs.Set(sched.host_manager, 'filter_hosts',
                 fake_filter_hosts)
         self.stubs.Set(least_cost, 'weighted_sum', _fake_weighted_sum)
         self.stubs.Set(db, 'zone_get_all', fake_zone_get_all)
         self.stubs.Set(sched, '_call_zone_method', fake_call_zone_method)
+
+        fakes.mox_host_manager_db_calls(self.mox, ctxt_elevated)
 
         request_spec = {'num_instances': 10,
                         'instance_type': {'memory_mb': 512, 'local_gb': 512},
@@ -263,7 +246,7 @@ class DistributedSchedulerTestCase(test.TestCase):
                                                 'local_gb': 512}}
         filter_properties = {'local_zone_only': True}
         self.mox.ReplayAll()
-        weighted_hosts = sched._schedule(fake_context, 'compute',
+        weighted_hosts = sched._schedule(ctxt, 'compute',
                 request_spec, filter_properties=filter_properties)
         self.mox.VerifyAll()
         self.assertEquals(len(weighted_hosts), 10)
