@@ -42,6 +42,7 @@ def _create_service(**kwargs):
                'host': 'host1',
                'created_at': t,
                'updated_at': t,
+               'disabled': False,
                'compute_node': []}
     service.update(kwargs)
     return service
@@ -173,13 +174,13 @@ class SimpleSchedulerTestCase(test_chance_scheduler.ChanceSchedulerTestCase):
 
         self.mox.StubOutWithMock(ctxt, 'elevated')
         self.mox.StubOutWithMock(db, 'service_get_all_compute_sorted')
-        self.mox.StubOutWithMock(self.driver, 'service_is_up')
+        self.mox.StubOutWithMock(utils, 'service_is_up')
 
         ctxt.elevated().AndReturn(ctxt_elevated)
         db.service_get_all_compute_sorted(ctxt_elevated).AndReturn(
                 [(service1, 0), (service2, 0)])
         # Should have picked service2/host2 (zone matches)
-        self.driver.service_is_up(service2).AndReturn(True)
+        utils.service_is_up(service2).AndReturn(True)
 
         self.mox.ReplayAll()
         instance_opts = dict(availability_zone='zone2',
@@ -200,13 +201,13 @@ class SimpleSchedulerTestCase(test_chance_scheduler.ChanceSchedulerTestCase):
 
         self.mox.StubOutWithMock(ctxt, 'elevated')
         self.mox.StubOutWithMock(db, 'service_get_all_compute_sorted')
-        self.mox.StubOutWithMock(self.driver, 'service_is_up')
+        self.mox.StubOutWithMock(utils, 'service_is_up')
 
         ctxt.elevated().AndReturn(ctxt_elevated)
         db.service_get_all_compute_sorted(ctxt_elevated).AndReturn(
                 [(service1, 0), (service2, 0)])
-        self.driver.service_is_up(service1).AndReturn(False)
-        self.driver.service_is_up(service2).AndReturn(True)
+        utils.service_is_up(service1).AndReturn(False)
+        utils.service_is_up(service2).AndReturn(True)
 
         self.mox.ReplayAll()
         instance_opts = dict(availability_zone='zone1',
@@ -227,13 +228,13 @@ class SimpleSchedulerTestCase(test_chance_scheduler.ChanceSchedulerTestCase):
 
         self.mox.StubOutWithMock(ctxt, 'elevated')
         self.mox.StubOutWithMock(db, 'service_get_all_compute_sorted')
-        self.mox.StubOutWithMock(self.driver, 'service_is_up')
+        self.mox.StubOutWithMock(utils, 'service_is_up')
 
         ctxt.elevated().AndReturn(ctxt_elevated)
         db.service_get_all_compute_sorted(ctxt_elevated).AndReturn(
                 [(service1, 0), (service2, 0)])
-        self.driver.service_is_up(service1).AndReturn(False)
-        self.driver.service_is_up(service2).AndReturn(False)
+        utils.service_is_up(service1).AndReturn(False)
+        utils.service_is_up(service2).AndReturn(False)
 
         self.mox.ReplayAll()
         instance_opts = dict(availability_zone='zone1',
@@ -254,12 +255,12 @@ class SimpleSchedulerTestCase(test_chance_scheduler.ChanceSchedulerTestCase):
 
         self.mox.StubOutWithMock(ctxt, 'elevated')
         self.mox.StubOutWithMock(db, 'service_get_all_compute_sorted')
-        self.mox.StubOutWithMock(self.driver, 'service_is_up')
+        self.mox.StubOutWithMock(utils, 'service_is_up')
 
         ctxt.elevated().AndReturn(ctxt_elevated)
         db.service_get_all_compute_sorted(ctxt_elevated).AndReturn(
                 [(service1, 0), (service2, 0)])
-        self.driver.service_is_up(service1).AndReturn(True)
+        utils.service_is_up(service1).AndReturn(True)
 
         self.mox.ReplayAll()
         instance_opts = dict(availability_zone='zone1:host2',
@@ -278,12 +279,12 @@ class SimpleSchedulerTestCase(test_chance_scheduler.ChanceSchedulerTestCase):
 
         self.mox.StubOutWithMock(ctxt, 'elevated')
         self.mox.StubOutWithMock(db, 'service_get_by_args')
-        self.mox.StubOutWithMock(self.driver, 'service_is_up')
+        self.mox.StubOutWithMock(utils, 'service_is_up')
 
         ctxt.elevated().AndReturn(ctxt_elevated)
         db.service_get_by_args(ctxt_elevated, 'host2',
                 'nova-compute').AndReturn(service1)
-        self.driver.service_is_up(service1).AndReturn(True)
+        utils.service_is_up(service1).AndReturn(True)
 
         self.mox.ReplayAll()
         instance_opts = dict(availability_zone='zone1:host2',
@@ -301,12 +302,12 @@ class SimpleSchedulerTestCase(test_chance_scheduler.ChanceSchedulerTestCase):
 
         self.mox.StubOutWithMock(ctxt, 'elevated')
         self.mox.StubOutWithMock(db, 'service_get_by_args')
-        self.mox.StubOutWithMock(self.driver, 'service_is_up')
+        self.mox.StubOutWithMock(utils, 'service_is_up')
 
         ctxt.elevated().AndReturn(ctxt_elevated)
         db.service_get_by_args(ctxt_elevated, 'host2',
                 'nova-compute').AndReturn(service1)
-        self.driver.service_is_up(service1).AndReturn(False)
+        utils.service_is_up(service1).AndReturn(False)
 
         self.mox.ReplayAll()
         instance_opts = dict(availability_zone='zone1:host2',
@@ -332,12 +333,12 @@ class SimpleSchedulerTestCase(test_chance_scheduler.ChanceSchedulerTestCase):
 
         self.mox.StubOutWithMock(ctxt, 'elevated')
         self.mox.StubOutWithMock(db, 'service_get_all_compute_sorted')
-        self.mox.StubOutWithMock(self.driver, 'service_is_up')
+        self.mox.StubOutWithMock(utils, 'service_is_up')
 
         ctxt.elevated().AndReturn(ctxt_elevated)
         db.service_get_all_compute_sorted(ctxt_elevated).AndReturn(
                 [(service1, 2), (service2, 5)])
-        self.driver.service_is_up(service1).AndReturn(True)
+        utils.service_is_up(service1).AndReturn(True)
 
         self.mox.ReplayAll()
         instance_opts = dict(vcpus=1, image_ref='no-match')
@@ -399,12 +400,12 @@ class SimpleSchedulerTestCase(test_chance_scheduler.ChanceSchedulerTestCase):
 
         self.mox.StubOutWithMock(ctxt, 'elevated')
         self.mox.StubOutWithMock(db, 'service_get_all_compute_sorted')
-        self.mox.StubOutWithMock(self.driver, 'service_is_up')
+        self.mox.StubOutWithMock(utils, 'service_is_up')
 
         ctxt.elevated().AndReturn(ctxt_elevated)
         db.service_get_all_compute_sorted(ctxt_elevated).AndReturn(
                 [(service1, 2), (service2, 9)])
-        self.driver.service_is_up(service2).AndReturn(True)
+        utils.service_is_up(service2).AndReturn(True)
 
         self.mox.ReplayAll()
         instance_opts = dict(vcpus=2, image_ref='hotmess')
@@ -428,7 +429,6 @@ class SimpleSchedulerTestCase(test_chance_scheduler.ChanceSchedulerTestCase):
 
         self.mox.StubOutWithMock(ctxt, 'elevated')
         self.mox.StubOutWithMock(db, 'service_get_all_compute_sorted')
-        self.mox.StubOutWithMock(self.driver, 'service_is_up')
 
         ctxt.elevated().AndReturn(ctxt_elevated)
         db.service_get_all_compute_sorted(ctxt_elevated).AndReturn(
@@ -456,12 +456,12 @@ class SimpleSchedulerTestCase(test_chance_scheduler.ChanceSchedulerTestCase):
 
         self.mox.StubOutWithMock(ctxt, 'elevated')
         self.mox.StubOutWithMock(db, 'service_get_all_compute_sorted')
-        self.mox.StubOutWithMock(self.driver, 'service_is_up')
+        self.mox.StubOutWithMock(utils, 'service_is_up')
 
         ctxt.elevated().AndReturn(ctxt_elevated)
         db.service_get_all_compute_sorted(ctxt_elevated).AndReturn(
                 [(service1, 2), (service2, 9)])
-        self.driver.service_is_up(service2).AndReturn(True)
+        utils.service_is_up(service2).AndReturn(True)
 
         self.mox.ReplayAll()
         instance_opts = dict(vcpus=2, image_ref='hotmess')
@@ -488,14 +488,14 @@ class SimpleSchedulerTestCase(test_chance_scheduler.ChanceSchedulerTestCase):
         self.mox.StubOutWithMock(ctxt, 'elevated')
         self.mox.StubOutWithMock(db, 'volume_get')
         self.mox.StubOutWithMock(db, 'service_get_all_volume_sorted')
-        self.mox.StubOutWithMock(self.driver, 'service_is_up')
+        self.mox.StubOutWithMock(utils, 'service_is_up')
         self.mox.StubOutWithMock(driver, 'cast_to_volume_host')
 
         ctxt.elevated().AndReturn(ctxt_elevated)
         db.volume_get(ctxt, volume['id']).AndReturn(volume)
         db.service_get_all_volume_sorted(ctxt_elevated).AndReturn(
                 [(service1, 20), (service2, 50)])
-        self.driver.service_is_up(service1).AndReturn(True)
+        utils.service_is_up(service1).AndReturn(True)
         driver.cast_to_volume_host(ctxt, 'host1', 'create_volume',
                 volume_id=volume['id'], **fake_kwargs)
 
@@ -571,7 +571,7 @@ class SimpleSchedulerTestCase(test_chance_scheduler.ChanceSchedulerTestCase):
         self.mox.StubOutWithMock(ctxt, 'elevated')
         self.mox.StubOutWithMock(db, 'volume_get')
         self.mox.StubOutWithMock(db, 'service_get_all_volume_sorted')
-        self.mox.StubOutWithMock(self.driver, 'service_is_up')
+        self.mox.StubOutWithMock(utils, 'service_is_up')
         self.mox.StubOutWithMock(driver, 'cast_to_volume_host')
 
         ctxt.elevated().AndReturn(ctxt_elevated)
@@ -579,7 +579,7 @@ class SimpleSchedulerTestCase(test_chance_scheduler.ChanceSchedulerTestCase):
         db.service_get_all_volume_sorted(ctxt_elevated).AndReturn(
                 [(service1, 0), (service2, 0)])
         # Should have picked service2/host2 (zone matches)
-        self.driver.service_is_up(service2).AndReturn(True)
+        utils.service_is_up(service2).AndReturn(True)
         driver.cast_to_volume_host(ctxt, 'host2', 'create_volume',
                 volume_id=volume['id'], **fake_kwargs)
 
@@ -604,15 +604,15 @@ class SimpleSchedulerTestCase(test_chance_scheduler.ChanceSchedulerTestCase):
         self.mox.StubOutWithMock(ctxt, 'elevated')
         self.mox.StubOutWithMock(db, 'volume_get')
         self.mox.StubOutWithMock(db, 'service_get_all_volume_sorted')
-        self.mox.StubOutWithMock(self.driver, 'service_is_up')
+        self.mox.StubOutWithMock(utils, 'service_is_up')
         self.mox.StubOutWithMock(driver, 'cast_to_volume_host')
 
         ctxt.elevated().AndReturn(ctxt_elevated)
         db.volume_get(ctxt, volume['id']).AndReturn(volume)
         db.service_get_all_volume_sorted(ctxt_elevated).AndReturn(
                 [(service1, 0), (service2, 0)])
-        self.driver.service_is_up(service1).AndReturn(False)
-        self.driver.service_is_up(service2).AndReturn(True)
+        utils.service_is_up(service1).AndReturn(False)
+        utils.service_is_up(service2).AndReturn(True)
         driver.cast_to_volume_host(ctxt, 'host2', 'create_volume',
                 volume_id=volume['id'], **fake_kwargs)
 
@@ -637,14 +637,14 @@ class SimpleSchedulerTestCase(test_chance_scheduler.ChanceSchedulerTestCase):
         self.mox.StubOutWithMock(ctxt, 'elevated')
         self.mox.StubOutWithMock(db, 'volume_get')
         self.mox.StubOutWithMock(db, 'service_get_all_volume_sorted')
-        self.mox.StubOutWithMock(self.driver, 'service_is_up')
+        self.mox.StubOutWithMock(utils, 'service_is_up')
 
         ctxt.elevated().AndReturn(ctxt_elevated)
         db.volume_get(ctxt, volume['id']).AndReturn(volume)
         db.service_get_all_volume_sorted(ctxt_elevated).AndReturn(
                 [(service1, 0), (service2, 0)])
-        self.driver.service_is_up(service1).AndReturn(False)
-        self.driver.service_is_up(service2).AndReturn(False)
+        utils.service_is_up(service1).AndReturn(False)
+        utils.service_is_up(service2).AndReturn(False)
 
         self.mox.ReplayAll()
         self.assertRaises(exception.NoValidHost,
@@ -668,14 +668,14 @@ class SimpleSchedulerTestCase(test_chance_scheduler.ChanceSchedulerTestCase):
         self.mox.StubOutWithMock(ctxt, 'elevated')
         self.mox.StubOutWithMock(db, 'volume_get')
         self.mox.StubOutWithMock(db, 'service_get_all_volume_sorted')
-        self.mox.StubOutWithMock(self.driver, 'service_is_up')
+        self.mox.StubOutWithMock(utils, 'service_is_up')
         self.mox.StubOutWithMock(driver, 'cast_to_volume_host')
 
         ctxt.elevated().AndReturn(ctxt_elevated)
         db.volume_get(ctxt, volume['id']).AndReturn(volume)
         db.service_get_all_volume_sorted(ctxt_elevated).AndReturn(
                 [(service1, 0), (service2, 0)])
-        self.driver.service_is_up(service1).AndReturn(True)
+        utils.service_is_up(service1).AndReturn(True)
         # Non-admin should ignore host part of availability_zone
         driver.cast_to_volume_host(ctxt, 'host1', 'create_volume',
                 volume_id=volume['id'], **fake_kwargs)
@@ -701,14 +701,14 @@ class SimpleSchedulerTestCase(test_chance_scheduler.ChanceSchedulerTestCase):
         self.mox.StubOutWithMock(ctxt, 'elevated')
         self.mox.StubOutWithMock(db, 'volume_get')
         self.mox.StubOutWithMock(db, 'service_get_by_args')
-        self.mox.StubOutWithMock(self.driver, 'service_is_up')
+        self.mox.StubOutWithMock(utils, 'service_is_up')
         self.mox.StubOutWithMock(driver, 'cast_to_volume_host')
 
         ctxt.elevated().AndReturn(ctxt_elevated)
         db.volume_get(ctxt, volume['id']).AndReturn(volume)
         db.service_get_by_args(ctxt_elevated, 'host2',
                 'nova-volume').AndReturn(service2)
-        self.driver.service_is_up(service2).AndReturn(True)
+        utils.service_is_up(service2).AndReturn(True)
         driver.cast_to_volume_host(ctxt, 'host2', 'create_volume',
                 volume_id=volume['id'], **fake_kwargs)
 
@@ -733,14 +733,14 @@ class SimpleSchedulerTestCase(test_chance_scheduler.ChanceSchedulerTestCase):
         self.mox.StubOutWithMock(ctxt, 'elevated')
         self.mox.StubOutWithMock(db, 'volume_get')
         self.mox.StubOutWithMock(db, 'service_get_by_args')
-        self.mox.StubOutWithMock(self.driver, 'service_is_up')
+        self.mox.StubOutWithMock(utils, 'service_is_up')
         self.mox.StubOutWithMock(driver, 'cast_to_volume_host')
 
         ctxt.elevated().AndReturn(ctxt_elevated)
         db.volume_get(ctxt, volume['id']).AndReturn(volume)
         db.service_get_by_args(ctxt_elevated, 'host2',
                 'nova-volume').AndReturn(service2)
-        self.driver.service_is_up(service2).AndReturn(False)
+        utils.service_is_up(service2).AndReturn(False)
 
         self.mox.ReplayAll()
         self.assertRaises(exception.WillNotSchedule,

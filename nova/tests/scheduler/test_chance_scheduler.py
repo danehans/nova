@@ -40,7 +40,7 @@ class ChanceSchedulerTestCase(test_scheduler.SchedulerTestCase):
         request_spec = dict(instance_properties=dict(host='host2'))
         filter_properties = {'ignore_hosts': ['host2']}
 
-        filtered = sched._filter_hosts(request_spec, hosts,
+        filtered = self.driver._filter_hosts(request_spec, hosts,
                 filter_properties=filter_properties)
         self.assertEqual(filtered, ['host1', 'host3'])
 
@@ -52,7 +52,8 @@ class ChanceSchedulerTestCase(test_scheduler.SchedulerTestCase):
         request_spec = dict(instance_properties=dict(host='host2'))
         filter_properties = {'ignore_hosts': []}
 
-        filtered = self.driver._filter_hosts(request_spec, hosts)
+        filtered = self.driver._filter_hosts(request_spec, hosts,
+                filter_properties=filter_properties)
         self.assertEqual(filtered, hosts)
 
     def test_basic_schedule_run_instance(self):
