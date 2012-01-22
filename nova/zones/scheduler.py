@@ -17,6 +17,7 @@
 Zones Scheduler
 """
 
+from nova import compute
 from nova.db import base
 from nova import flags
 from nova import log as logging
@@ -32,14 +33,16 @@ class ZonesScheduler(base.Base):
     def __init__(self, manager):
         super(ZonesScheduler, self).__init__()
         self.manager = manager
+        self.compute_api = compute.API()
 
     def _create_instance_here(self, context, request_spec):
         instance_values = request_spec['instance_properties']
         instance_values['zone_name'] = FLAGS.zone_name
-        instance = self.db.create_db_entry_for_new_instance(context,
+        instance = self.compute_api.create_db_entry_for_new_instance(
+                context,
                 request_spec['instance_type'],
                 request_spec['image'],
-                request_spec['instance_properties'],
+                instance_values,
                 request_spec['security_group'],
                 request_spec['block_device_mapping'])
         uuid = request_spec['instance_properties']['uuid']
