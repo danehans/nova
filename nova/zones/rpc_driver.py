@@ -32,7 +32,7 @@ class ZonesRPCDriver(driver.BaseZonesDriver):
     def __init__(self):
         super(ZonesRPCDriver, self).__init__()
 
-    def _get_rabbit_params_for_zone(self, context, zone_info):
+    def _get_rabbit_params_for_zone(self, context, next_hop):
         param_map = {'username': 'userid',
                      'password': 'password',
                      'amqp_host': 'hostname',
@@ -40,19 +40,26 @@ class ZonesRPCDriver(driver.BaseZonesDriver):
                      'amqp_virtual_host': 'virtual_host'}
         rabbit_params = {}
         for source, target in param_map.items():
-            rabbit_params[target] = zone_info.db_info[source]
+            rabbit_params[target] = next_hop.db_info[source]
         return rabbit_params
 
-    def send_message_to_zone(self, context, zone_info, message):
+    def _cast_message_to_zone(self, context, zone_info, message):
         rabbit_params = self._get_rabbit_params_for_zone(zone_info)
         rpc.cast_to_zone(context, rabbit_params, message)
 
-    def route_call_via_zone(self, context, zone_info, dest_zone_name,
-            method, method_kwargs, source_zone=None, **kwargs):
-        source_zone = source_zone or self.my_zone_info.zone_name
-        msg = {'method': 'route_call_by_zone_name',
-               'args': {'zone_name': dest_zone_name,
-                        'method_kwargs': method_kwargs,
-                        'source_zone': source_zone}}
+    def cast_to_method_in_zone(self, context, next_hop, dest_zone_name,
+            method, method_kwargs, **kwargs):
+        msg = {'method': 'cast_to_method_in_zone_by_name',
+               'args': {'dest_zone_name': dest_zone_name,
+                        'method_kwargs': method_kwargs}}
         msg.update(kwargs)
-        self.send_message_to_zone(context, zone_info, msg)
+        self._send_message_to_zone(context, next_hop, msg)
+
+    def call_method_in_zone(self, context, next_hop, dest_zone_name,
+            method, method_kwargs, **kwargs):
+        msg = {'method': 'call_method_in_zone_by_name',
+               'args': {'dest_zone_name': dest_zone_name,
+                        'method_kwargs': method_kwargs}}
+        msg.update(kwargs)
+        # FIXME(comstud)
+        raise NotImplementedError()

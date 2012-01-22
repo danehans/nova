@@ -44,8 +44,8 @@ class APIUsingZones(compute_api.API):
         if not zone_name:
             # FIXME(comstud)
             raise SystemError
-        zones_api.call_service_api_method(context, zone_name, 'compute',
-                method, context, instance_uuid, *args, **kwargs)
+        return zones_api.call_service_api_method(context, zone_name,
+                'compute', method, context, instance_uuid, *args, **kwargs)
 
     def _check_requested_networks(self, context, requested_networks):
         """Override compute API's checking of this.  It'll happen in
@@ -56,9 +56,7 @@ class APIUsingZones(compute_api.API):
     def _run_instance_rpc_method(self, context, topic, message):
         """Proxy run_instance rpc call to zones instead of scheduler"""
         args = message['args']
-        zones_api.schedule_run_instance(context,
-                args['request_spec'], args['admin_password'],
-                args['injected_files'], args['requested_networks'])
+        zones_api.schedule_run_instance(context, **args)
 
     def _schedule_run_instance(self, rpc_method, *args, **kwargs):
         """Override default behavior and send this to zones service by
@@ -106,7 +104,7 @@ class APIUsingZones(compute_api.API):
                 requested_networks, config_drive,
                 block_device_mapping, auto_disk_config,
                 create_instance_here=True)
-              
+
 
     @check_instance_state(vm_state=[vm_states.ACTIVE, vm_states.SHUTOFF,
                                     vm_states.ERROR])

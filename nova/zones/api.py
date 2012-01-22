@@ -28,14 +28,20 @@ FLAGS = flags.FLAGS
 LOG = logging.getLogger('nova.zones.api')
 
 
-def route_call_to_zone(context, zone_name, method, **kwargs):
-    message = {'method': 'route_call_by_zone_name',
-               'args': {'zone_name': zone_name,
+def cast_to_method_in_zone(context, zone_name, method, **kwargs):
+    message = {'method': 'cast_to_method_in_zone_by_name',
+               'args': {'dest_zone_name': zone_name,
                         'method': method,
-                        'method_kwargs': kwargs,
-                        # not used atm
-                        'source_zone': FLAGS.zone_name}}
+                        'method_kwargs': kwargs}}
     rpc.cast(context, FLAGS.zones_topic, message)
+
+
+def call_method_in_zone(context, zone_name, method, **kwargs):
+    message = {'method': 'call_method_in_zone_by_name',
+               'args': {'dest_zone_name': zone_name,
+                        'method': method,
+                        'method_kwargs': kwargs}}
+    return rpc.call(context, FLAGS.zones_topic, message)
 
 
 def cast_service_api_method(context, zone_name, service_name, method,
@@ -45,7 +51,7 @@ def cast_service_api_method(context, zone_name, service_name, method,
                    'method': method,
                    'method_args': args,
                    'method_kwargs': kwargs}
-    route_call_to_zone(context, zone_name, 'call_service_api_method',
+    cast_to_method_in_zone(context, zone_name, 'call_service_api_method',
             method_info=method_info)
 
 
@@ -57,17 +63,13 @@ def call_service_api_method(context, zone_name, service_name, method,
                    'method': method,
                    'method_args': args,
                    'method_kwargs': kwargs}
-    route_call_to_zone(context, zone_name, 'call_service_api_method',
-            method_info=method_info)
+    return call_method_in_zone(context, zone_name,
+            'call_service_api_method', method_info=method_info)
 
 
-def schedule_run_instance(context, request_spec, admin_password,
-        injected_files, requested_networks):
+def schedule_run_instance(context, **kwargs):
     message = {'method': 'schedule_run_instance',
-               'args': {'request_spec': request_spec,
-                        'admin_password': admin_password,
-                        'injected_files': injected_files,
-                        'requested_networks': requested_neworks}}
+               'args': **kwargs}
     rpc.cast(context, FLAGS.zones_topic, message)
 
 
@@ -85,14 +87,12 @@ def instance_update(context, instance):
     # FIXME: encode created_at/updated_at
     message = {'method': 'instance_update',
                'args': {'instance_uuid': instance['uuid'],
-                        'update_info': update_info,
-                        'source_zone': FLAGS.zone_name}}
+                        'update_info': update_info}}
     rpc.cast(context, FLAGS.zones_topic, message)
 
 
 def instance_destroy(context, instance):
     # FIXME: encode deleted_at
     message = {'method': 'instance_destroy',
-               'args': {'instance_uuid': instance['uuid'],
-                        'source_zone': FLAGS.zone_name}}
+               'args': {'instance_uuid': instance['uuid']}}
     rpc.cast(context, FLAGS.zones_topic, message)
