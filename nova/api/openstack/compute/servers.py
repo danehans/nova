@@ -33,7 +33,6 @@ from nova import exception
 from nova import flags
 from nova import log as logging
 from nova.rpc import common as rpc_common
-from nova.scheduler import api as scheduler_api
 from nova import utils
 
 
@@ -474,7 +473,7 @@ class Controller(wsgi.Controller):
     def _get_server(self, context, instance_uuid):
         """Utility function for looking up an instance by uuid"""
         try:
-            return self.compute_api.routing_get(context, instance_uuid)
+            return self.compute_api.get(context, instance_uuid)
         except exception.NotFound:
             raise exc.HTTPNotFound()
 
@@ -606,13 +605,11 @@ class Controller(wsgi.Controller):
             raise exc.HTTPBadRequest(explanation=expl)
 
     @wsgi.serializers(xml=ServerTemplate)
-    @exception.novaclient_converter
-    @scheduler_api.redirect_handler
     def show(self, req, id):
         """ Returns server details by server id """
         try:
             context = req.environ['nova.context']
-            instance = self.compute_api.routing_get(context, id)
+            instance = self.compute_api.get(context, id)
             self._add_instance_faults(context, [instance])
             return self._view_builder.show(req, instance)
         except exception.NotFound:
@@ -688,8 +685,6 @@ class Controller(wsgi.Controller):
             msg = _("Invalid flavorRef provided.")
             raise exc.HTTPBadRequest(explanation=msg)
 
-        zone_blob = server_dict.get('blob')
-
         # optional openstack extensions:
         key_name = server_dict.get('key_name')
         user_data = server_dict.get('user_data')
@@ -740,7 +735,6 @@ class Controller(wsgi.Controller):
                             access_ip_v6=access_ip_v6,
                             injected_files=injected_files,
                             admin_password=password,
-                            zone_blob=zone_blob,
                             reservation_id=reservation_id,
                             min_count=min_count,
                             max_count=max_count,
@@ -799,7 +793,6 @@ class Controller(wsgi.Controller):
             self.compute_api.delete(context, instance)
 
     @wsgi.serializers(xml=ServerTemplate)
-    @scheduler_api.redirect_handler
     def update(self, req, id, body):
         """Update server then pass on to version-specific controller"""
         if len(req.body) == 0:
@@ -831,7 +824,7 @@ class Controller(wsgi.Controller):
                     body['server']['auto_disk_config'])
             update_dict['auto_disk_config'] = auto_disk_config
 
-        instance = self.compute_api.routing_get(ctxt, id)
+        instance = self.compute_api.get(ctxt, id)
 
         try:
             self.compute_api.update(ctxt, instance, **update_dict)
@@ -847,8 +840,6 @@ class Controller(wsgi.Controller):
     @wsgi.serializers(xml=FullServerTemplate)
     @wsgi.deserializers(xml=ActionDeserializer)
     @wsgi.action('confirmResize')
-    @exception.novaclient_converter
-    @scheduler_api.redirect_handler
     def _action_confirm_resize(self, req, id, body):
         context = req.environ['nova.context']
         instance = self._get_server(context, id)
@@ -869,8 +860,6 @@ class Controller(wsgi.Controller):
     @wsgi.serializers(xml=FullServerTemplate)
     @wsgi.deserializers(xml=ActionDeserializer)
     @wsgi.action('revertResize')
-    @exception.novaclient_converter
-    @scheduler_api.redirect_handler
     def _action_revert_resize(self, req, id, body):
         context = req.environ['nova.context']
         instance = self._get_server(context, id)
@@ -891,8 +880,6 @@ class Controller(wsgi.Controller):
     @wsgi.serializers(xml=FullServerTemplate)
     @wsgi.deserializers(xml=ActionDeserializer)
     @wsgi.action('reboot')
-    @exception.novaclient_converter
-    @scheduler_api.redirect_handler
     def _action_reboot(self, req, id, body):
         if 'reboot' in body and 'type' in body['reboot']:
             valid_reboot_types = ['HARD', 'SOFT']
@@ -939,8 +926,6 @@ class Controller(wsgi.Controller):
         return webob.Response(status_int=202)
 
     @wsgi.response(204)
-    @exception.novaclient_converter
-    @scheduler_api.redirect_handler
     def delete(self, req, id):
         """ Destroys a server """
         try:
@@ -979,8 +964,6 @@ class Controller(wsgi.Controller):
     @wsgi.serializers(xml=FullServerTemplate)
     @wsgi.deserializers(xml=ActionDeserializer)
     @wsgi.action('changePassword')
-    @exception.novaclient_converter
-    @scheduler_api.redirect_handler
     def _action_change_password(self, req, id, body):
         context = req.environ['nova.context']
         if (not 'changePassword' in body
@@ -1011,8 +994,6 @@ class Controller(wsgi.Controller):
     @wsgi.serializers(xml=FullServerTemplate)
     @wsgi.deserializers(xml=ActionDeserializer)
     @wsgi.action('resize')
-    @exception.novaclient_converter
-    @scheduler_api.redirect_handler
     def _action_resize(self, req, id, body):
         """ Resizes a given instance to the flavor size requested """
         try:
@@ -1034,8 +1015,6 @@ class Controller(wsgi.Controller):
     @wsgi.serializers(xml=FullServerTemplate)
     @wsgi.deserializers(xml=ActionDeserializer)
     @wsgi.action('rebuild')
-    @exception.novaclient_converter
-    @scheduler_api.redirect_handler
     def _action_rebuild(self, req, id, body):
         """Rebuild an instance with the given attributes"""
         try:
@@ -1119,8 +1098,6 @@ class Controller(wsgi.Controller):
     @wsgi.serializers(xml=FullServerTemplate)
     @wsgi.deserializers(xml=ActionDeserializer)
     @wsgi.action('createImage')
-    @exception.novaclient_converter
-    @scheduler_api.redirect_handler
     @common.check_snapshots_enabled
     def _action_create_image(self, req, id, body):
         """Snapshot a server instance."""
