@@ -173,7 +173,7 @@ def cast_to_server(context, server_params, topic, msg):
 
     :returns: None
     """
-    return _get_impl().cast_with_params(context, topic, rpc_params, msg)
+    return _get_impl().cast_to_server(context, topic, rpc_params, msg)
 
 
 def fanout_cast_to_server(context, server_params, topic, msg):
@@ -188,7 +188,7 @@ def fanout_cast_to_server(context, server_params, topic, msg):
 
     :returns: None
     """
-    return _get_impl().fanout_cast_with_params(context, topic, rpc_params,
+    return _get_impl().fanout_cast_to_server(context, topic, rpc_params,
             msg)
 
 

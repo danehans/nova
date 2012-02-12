@@ -638,7 +638,7 @@ def cast_to_server(context, server_params, topic, msg):
 
 def fanout_cast_to_server(context, server_params, topic, msg):
     """Sends a message on a fanout exchange to a specific server."""
-    return rpc_amqp.cast_to_zone(context, server_params, topic, msg)
+    return rpc_amqp.fanout_cast_to_server(context, server_params, topic, msg)
 
 
 def notify(context, topic, msg):
