@@ -45,8 +45,10 @@ these objects be simple dictionaries.
 
 from nova import exception
 from nova import flags
+from nova import logging
 from nova.openstack.common import cfg
 from nova import utils
+from nova.cells import api as cells_api
 
 
 db_opts = [
@@ -72,6 +74,7 @@ FLAGS.register_opts(db_opts)
 
 IMPL = utils.LazyPluggable('db_backend',
                            sqlalchemy='nova.db.sqlalchemy.api')
+LOG = logging.getLogger(__name__)
 
 
 class NoMoreNetworks(exception.NovaException):
@@ -525,9 +528,15 @@ def instance_data_get_for_project(context, project_id):
     return IMPL.instance_data_get_for_project(context, project_id)
 
 
-def instance_destroy(context, instance_id):
+def instance_destroy(context, instance_id, update_cells=True):
     """Destroy the instance or raise if it does not exist."""
-    return IMPL.instance_destroy(context, instance_id)
+    rv = IMPL.instance_destroy(context, instance_id)
+    if update_cells:
+        try:
+            cells_api.instance_destroy(context, rv)
+        except Exception:
+            LOG.exception(_("Failed to notify cells of instance destroy"))
+    return rv
 
 
 def instance_get_by_uuid(context, uuid):
@@ -602,13 +611,19 @@ def instance_test_and_set(context, instance_id, attr, ok_states,
             context, instance_id, attr, ok_states, new_state)
 
 
-def instance_update(context, instance_id, values):
+def instance_update(context, instance_id, values, update_cells=True):
     """Set the given properties on an instance and update it.
 
     Raises NotFound if instance does not exist.
 
     """
-    return IMPL.instance_update(context, instance_id, values)
+    rv = IMPL.instance_update(context, instance_id, values)
+    if update_cells:
+        try:
+            cells_api.instance_update(context, rv)
+        except Exception:
+            LOG.exception(_("Failed to notify cells of instance update"))
+    return rv
 
 
 def instance_add_security_group(context, instance_id, security_group_id):
@@ -1814,9 +1829,15 @@ def aggregate_host_delete(context, aggregate_id, host):
 ####################
 
 
-def instance_fault_create(context, values):
+def instance_fault_create(context, values, update_cells=True):
     """Create a new Instance Fault."""
-    return IMPL.instance_fault_create(context, values)
+    rv = IMPL.instance_fault_create(context, values)
+    if update_cells:
+        try:
+            cells_api.instance_fault_create(context, rv)
+        except Exception:
+            LOG.exception(_("Failed to notify cells of instance fault"))
+    return rv
 
 
 def instance_fault_get_by_instance_uuids(context, instance_uuids):

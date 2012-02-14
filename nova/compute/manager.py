@@ -46,13 +46,14 @@ import traceback
 from eventlet import greenthread
 
 from nova import block_device
-import nova.context
+from nova.cells import api as cells_api
 from nova.compute import aggregate_states
 from nova.compute import instance_types
 from nova.compute import power_state
 from nova.compute import task_states
 from nova.compute import utils as compute_utils
 from nova.compute import vm_states
+import nova.context
 from nova import exception
 from nova import flags
 import nova.image
@@ -237,6 +238,7 @@ class ComputeManager(manager.SchedulerDependentManager):
         self._last_host_check = 0
         self._last_bw_usage_poll = 0
         self._last_info_cache_heal = 0
+        self._last_cell_update = 0
 
         super(ComputeManager, self).__init__(service_name="compute",
                                              *args, **kwargs)

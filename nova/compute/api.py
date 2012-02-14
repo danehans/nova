@@ -563,6 +563,8 @@ class API(BaseAPI):
         This is called by the scheduler after a location for the
         instance has been determined.
         """
+        self.ensure_default_security_group(context)
+
         elevated = context.elevated()
         if security_group is None:
             security_group = ['default']
