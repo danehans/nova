@@ -458,6 +458,21 @@ global_opts = [
     cfg.StrOpt('default_access_ip_network_name',
                default=None,
                help='Name of network to use to set access ips for instances'),
-]
+    cfg.BoolOpt('enable_zones',
+                default=False,
+                help='Enable zones functionality'),
+    cfg.StrOpt('zone_name',
+                default='nova',
+                help='name of this zone'),
+    cfg.ListOpt('zone_capabilities',
+                default=['hypervisor=xenserver;kvm', 'os=linux;windows'],
+                help='Key/Multi-value list with the capabilities of the zone'),
+    cfg.StrOpt('zones_topic',
+                default='zones',
+                help='the topic zones nodes listen on'),
+    cfg.StrOpt('zones_manager',
+                default='nova.zones.manager.ZonesManager',
+                help='Manager for zones'),
+    ]
 
 FLAGS.register_opts(global_opts)

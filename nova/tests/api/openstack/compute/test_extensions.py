@@ -186,6 +186,7 @@ class ExtensionControllerTest(ExtensionTestCase):
             "VirtualInterfaces",
             "Volumes",
             "VolumeTypes",
+            "Zones",
             ]
         self.ext_list.sort()
 

@@ -47,6 +47,7 @@ from nova import exception
 from nova import flags
 from nova.openstack.common import cfg
 from nova import utils
+from nova.zones import api as zones_api
 
 
 db_opts = [
@@ -573,7 +574,13 @@ def instance_data_get_for_project(context, project_id):
 
 def instance_destroy(context, instance_id):
     """Destroy the instance or raise if it does not exist."""
-    return IMPL.instance_destroy(context, instance_id)
+    rv = IMPL.instance_destroy(context, instance_id)
+    try:
+        zones_api.instance_destroy(context, rv)
+    except Exception:
+        # Ignore zones failures
+        pass
+    return rv
 
 
 def instance_stop(context, instance_id):
@@ -658,7 +665,13 @@ def instance_update(context, instance_id, values):
     Raises NotFound if instance does not exist.
 
     """
-    return IMPL.instance_update(context, instance_id, values)
+    rv = IMPL.instance_update(context, instance_id, values)
+    try:
+        zones_api.instance_update(context, rv)
+    except Exception:
+        # Ignore zones failures
+        pass
+    return rv
 
 
 def instance_add_security_group(context, instance_id, security_group_id):

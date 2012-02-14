@@ -989,3 +989,15 @@ class InstanceNotFound(NotFound):
 
 class InvalidInstanceIDMalformed(Invalid):
         message = _("Invalid id: %(val) (expecting \"i-...\").")
+
+
+class ZoneRoutingInconsistency(NovaException):
+    message = _("Inconsistency in zone routing: %(reason)s")
+
+
+class ZoneServiceAPIMethodNotFound(NotFound):
+    message = _("Service API method not found: %(detail)s")
+
+
+class InstanceUnknownZone(NotFound):
+    message = _("Zone is not known for instance %(instance_id)s")

@@ -337,6 +337,11 @@ def get_networks_for_instance(context, instance):
         #                network api
         pass
 
+    # FIXME(comstud): The following 'if' and 'return' was added for
+    # zones but can go away when the fix for bug 932395 hits trunk.
+    if FLAGS.enable_zones:
+        return {}
+
     network_api = network.API()
 
     try:
