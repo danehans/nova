@@ -1181,6 +1181,11 @@ def security_group_exists(context, project_id, group_name):
     return IMPL.security_group_exists(context, project_id, group_name)
 
 
+def security_group_in_use(context, group_id):
+    """Indicates if a security group is currently in use."""
+    return IMPL.security_group_in_use(context, group_id)
+
+
 def security_group_create(context, values):
     """Create a new security group."""
     return IMPL.security_group_create(context, values)
@@ -1804,6 +1809,11 @@ def aggregate_create(context, values, metadata=None):
 def aggregate_get(context, aggregate_id, read_deleted='no'):
     """Get a specific aggregate by id."""
     return IMPL.aggregate_get(context, aggregate_id, read_deleted)
+
+
+def aggregate_get_by_host(context, host, read_deleted='no'):
+    """Get a specific aggregate by host"""
+    return IMPL.aggregate_get_by_host(context, host, read_deleted)
 
 
 def aggregate_update(context, aggregate_id, values):

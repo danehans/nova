@@ -1,7 +1,6 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
-
-# Copyright 2010 United States Government as represented by the
-# Administrator of the National Aeronautics and Space Administration.
+#
+# Copyright 2011 Nexenta Systems, Inc.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -15,12 +14,20 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+"""
+:mod:`nexenta` -- Package contains Nexenta-specific modules
+=====================================================================
 
-from nova.compute.api import AggregateAPI
-from nova.compute.api import HostAPI
-# Importing full names to not pollute the namespace and cause possible
-# collisions with use of 'from nova.compute import <foo>' elsewhere.
-import nova.flags
-import nova.utils
+.. automodule:: nexenta
+.. moduleauthor:: Yuriy Taraday <yorik.sar@gmail.com>
+"""
 
-API = nova.utils.import_class(nova.flags.FLAGS.compute_api_class)
+
+class NexentaException(Exception):
+    MESSAGE = _('Nexenta SA returned the error')
+
+    def __init__(self, error=None):
+        super(NexentaException, self).__init__(self.message, error)
+
+    def __str__(self):
+        return '%s: %s' % self.args

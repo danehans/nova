@@ -59,6 +59,12 @@ class WeightedHost(object):
         self.weight = weight
         self.host_state = host_state
 
+    def to_dict(self):
+        x = dict(weight=self.weight)
+        if self.host_state:
+            x['host'] = self.host_state.host
+        return x
+
 
 def noop_cost_fn(host_state, weighing_properties):
     """Return a pre-weight cost of 1 for each host"""

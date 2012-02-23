@@ -2834,6 +2834,41 @@ def security_group_exists(context, project_id, group_name):
 
 
 @require_context
+def security_group_in_use(context, group_id):
+    session = get_session()
+    with session.begin():
+        # Are there any other groups that haven't been deleted
+        # that include this group in their rules?
+        rules = session.query(models.SecurityGroupIngressRule).\
+                filter_by(group_id=group_id).\
+                filter_by(deleted=False).\
+                all()
+        for r in rules:
+            num_groups = session.query(models.SecurityGroup).\
+                        filter_by(deleted=False).\
+                        filter_by(id=r.parent_group_id).\
+                        count()
+            if num_groups:
+                return True
+
+        # Are there any instances that haven't been deleted
+        # that include this group?
+        inst_assoc = session.query(models.SecurityGroupInstanceAssociation).\
+                filter_by(security_group_id=group_id).\
+                filter_by(deleted=False).\
+                all()
+        for ia in inst_assoc:
+            num_instances = session.query(models.Instance).\
+                        filter_by(deleted=False).\
+                        filter_by(id=ia.instance_id).\
+                        count()
+            if num_instances:
+                return True
+
+    return False
+
+
+@require_context
 def security_group_create(context, values):
     security_group_ref = models.SecurityGroup()
     # FIXME(devcamcar): Unless I do this, rules fails with lazy load exception
@@ -4271,12 +4306,24 @@ def _aggregate_get_query(context, model_class, id_field, id,
 
 @require_admin_context
 def aggregate_create(context, values, metadata=None):
-    try:
+    session = get_session()
+    aggregate = _aggregate_get_query(context,
+                                     models.Aggregate,
+                                     models.Aggregate.name,
+                                     values['name'],
+                                     session=session,
+                                     read_deleted='yes').first()
+    if not aggregate:
         aggregate = models.Aggregate()
+        values.setdefault('operational_state', aggregate_states.CREATED)
         aggregate.update(values)
-        aggregate.operational_state = aggregate_states.CREATED
-        aggregate.save()
-    except exception.DBError:
+        aggregate.save(session=session)
+    elif aggregate.deleted:
+        aggregate.update({'deleted': False,
+                          'deleted_at': None,
+                          'availability_zone': values['availability_zone']})
+        aggregate.save(session=session)
+    else:
         raise exception.AggregateNameExists(aggregate_name=values['name'])
     if metadata:
         aggregate_metadata_add(context, aggregate.id, metadata)
@@ -4294,6 +4341,20 @@ def aggregate_get(context, aggregate_id, read_deleted='no'):
         raise exception.AggregateNotFound(aggregate_id=aggregate_id)
 
     return aggregate
+
+
+@require_admin_context
+def aggregate_get_by_host(context, host, read_deleted='no'):
+    aggregate_host = _aggregate_get_query(context,
+                                          models.AggregateHost,
+                                          models.AggregateHost.host,
+                                          host,
+                                          read_deleted='no').first()
+
+    if not aggregate_host:
+        raise exception.AggregateHostNotFound(host=host)
+
+    return aggregate_get(context, aggregate_host.aggregate_id, read_deleted)
 
 
 @require_admin_context
@@ -4409,8 +4470,7 @@ def aggregate_metadata_add(context, aggregate_id, metadata, set_delete=False):
             meta_ref = aggregate_metadata_get_item(context, aggregate_id,
                                                   meta_key, session)
             if meta_ref.deleted:
-                item.update({'deleted': False, 'deleted_at': None,
-                             'updated_at': literal_column('updated_at')})
+                item.update({'deleted': False, 'deleted_at': None})
         except exception.AggregateMetadataNotFound:
             meta_ref = models.AggregateMetadata()
             item.update({"key": meta_key, "aggregate_id": aggregate_id})
@@ -4469,9 +4529,7 @@ def aggregate_host_add(context, aggregate_id, host):
         except exception.DBError:
             raise exception.AggregateHostConflict(host=host)
     elif host_ref.deleted:
-        host_ref.update({'deleted': False,
-                         'deleted_at': None,
-                         'updated_at': literal_column('updated_at')})
+        host_ref.update({'deleted': False, 'deleted_at': None})
         host_ref.save(session=session)
     else:
         raise exception.AggregateHostExists(host=host,

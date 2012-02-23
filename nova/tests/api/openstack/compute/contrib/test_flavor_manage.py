@@ -26,8 +26,10 @@ from nova.api.openstack.compute.contrib import flavormanage
 
 
 def fake_get_instance_type_by_flavor_id(flavorid):
-    if flavorid == "failtest":
+    if flavorid == 'failtest':
         raise exception.NotFound("Not found sucka!")
+    elif not str(flavorid) == '1234':
+        raise Exception("This test expects flavorid 1234, not %s" % flavorid)
 
     return {
         'root_gb': 1,
@@ -83,7 +85,7 @@ class FlavorManageTest(test.TestCase):
 
     def test_delete(self):
         req = fakes.HTTPRequest.blank('/v2/123/flavors/1234')
-        res = self.controller._delete(req, id)
+        res = self.controller._delete(req, 1234)
         self.assertEqual(res.status_int, 202)
 
         # subsequent delete should fail
@@ -98,7 +100,7 @@ class FlavorManageTest(test.TestCase):
                 "vcpus": 2,
                 "disk": 1,
                 "OS-FLV-EXT-DATA:ephemeral": 1,
-                "id": 1235,
+                "id": 1234,
                 "swap": 512,
                 "rxtx_factor": 1,
             }
@@ -113,3 +115,30 @@ class FlavorManageTest(test.TestCase):
         body = json.loads(res.body)
         for key in expected["flavor"]:
             self.assertEquals(body["flavor"][key], expected["flavor"][key])
+
+    def test_instance_type_exists_exception_returns_409(self):
+        expected = {
+            "flavor": {
+                "name": "test",
+                "ram": 512,
+                "vcpus": 2,
+                "disk": 1,
+                "OS-FLV-EXT-DATA:ephemeral": 1,
+                "id": 1235,
+                "swap": 512,
+                "rxtx_factor": 1,
+            }
+        }
+
+        def fake_create(name, memory_mb, vcpus, root_gb, ephemeral_gb,
+                        flavorid, swap, rxtx_factor):
+            raise exception.InstanceTypeExists()
+
+        self.stubs.Set(instance_types, "create", fake_create)
+        url = '/v2/fake/flavors'
+        req = webob.Request.blank(url)
+        req.headers['Content-Type'] = 'application/json'
+        req.method = 'POST'
+        req.body = json.dumps(expected)
+        res = req.get_response(fakes.wsgi_app())
+        self.assertEqual(res.status_int, 409)

@@ -78,6 +78,7 @@ from nova import flags
 from nova import log as logging
 from nova.openstack.common import cfg
 from nova.virt import driver
+from nova.virt.xenapi import pool
 from nova.virt.xenapi import vm_utils
 from nova.virt.xenapi.vmops import VMOps
 from nova.virt.xenapi.volumeops import VolumeOps
@@ -180,6 +181,7 @@ class XenAPIConnection(driver.ComputeDriver):
         self._product_version = self._session.get_product_version()
         self._vmops = VMOps(self._session, self._product_version)
         self._initiator = None
+        self._pool = pool.ResourcePool(self._session)
 
     @property
     def host_state(self):
@@ -312,9 +314,9 @@ class XenAPIConnection(driver.ComputeDriver):
         """Unplug VIFs from networks."""
         self._vmops.unplug_vifs(instance_ref, network_info)
 
-    def get_info(self, instance_name):
+    def get_info(self, instance):
         """Return data about VM instance"""
-        return self._vmops.get_info(instance_name)
+        return self._vmops.get_info(instance)
 
     def get_diagnostics(self, instance):
         """Return data about VM diagnostics"""
@@ -488,6 +490,15 @@ class XenAPIConnection(driver.ComputeDriver):
         """Sets the specified host's ability to accept new instances."""
         return self._vmops.set_host_enabled(host, enabled)
 
+    def add_to_aggregate(self, context, aggregate, host, **kwargs):
+        """Add a compute host to an aggregate."""
+        return self._pool.add_to_aggregate(context, aggregate, host, **kwargs)
+
+    def remove_from_aggregate(self, context, aggregate, host, **kwargs):
+        """Remove a compute host from an aggregate."""
+        return self._pool.remove_from_aggregate(context,
+                                                aggregate, host, **kwargs)
+
 
 class XenAPISession(object):
     """The session to invoke XenAPI SDK calls"""
@@ -495,13 +506,36 @@ class XenAPISession(object):
     def __init__(self, url, user, pw):
         self.XenAPI = self.get_imported_xenapi()
         self._sessions = queue.Queue()
+        self.host_uuid = None
         exception = self.XenAPI.Failure(_("Unable to log in to XenAPI "
-                            "(is the Dom0 disk full?)"))
+                                          "(is the Dom0 disk full?)"))
+        is_slave = False
         for i in xrange(FLAGS.xenapi_connection_concurrent):
-            session = self._create_session(url)
-            with timeout.Timeout(FLAGS.xenapi_login_timeout, exception):
-                session.login_with_password(user, pw)
+            try:
+                session = self._create_session(url)
+                with timeout.Timeout(FLAGS.xenapi_login_timeout, exception):
+                    session.login_with_password(user, pw)
+            except self.XenAPI.Failure, e:
+                # if user and pw of the master are different, we're doomed!
+                if e.details[0] == 'HOST_IS_SLAVE':
+                    master = e.details[1]
+                    session = self.XenAPI.Session(pool.swap_xapi_host(url,
+                                                                      master))
+                    session.login_with_password(user, pw)
+                    is_slave = True
+                else:
+                    raise
             self._sessions.put(session)
+
+        if is_slave:
+            try:
+                aggr = db.aggregate_get_by_host(context.get_admin_context(),
+                                                FLAGS.host)
+                self.host_uuid = aggr.metadetails[FLAGS.host]
+            except exception.AggregateHostNotFound:
+                LOG.exception(_('Host is member of a pool, but DB '
+                                'says otherwise'))
+                raise
 
     def get_product_version(self):
         """Return a tuple of (major, minor, rev) for the host version"""
@@ -530,9 +564,12 @@ class XenAPISession(object):
             self._sessions.put(session)
 
     def get_xenapi_host(self):
-        """Return the xenapi host"""
+        """Return the xenapi host on which nova-compute runs on."""
         with self._get_session() as session:
-            return session.xenapi.session.get_this_host(session.handle)
+            if self.host_uuid:
+                return session.xenapi.host.get_by_uuid(self.host_uuid)
+            else:
+                return session.xenapi.session.get_this_host(session.handle)
 
     def call_xenapi(self, method, *args):
         """Call the specified XenAPI method on a background thread."""
@@ -557,6 +594,10 @@ class XenAPISession(object):
         # _get_session() acquires a session too, it can result in a deadlock
         # if multiple greenthreads race with each other. See bug 924918
         host = self.get_xenapi_host()
+        # NOTE(armando): pass the host uuid along with the args so that
+        # the plugin gets executed on the right host when using XS pools
+        if self.host_uuid:
+            args['host_uuid'] = self.host_uuid
         with self._get_session() as session:
             return tpool.execute(self._unwrap_plugin_exceptions,
                                  session.xenapi.Async.host.call_plugin,
