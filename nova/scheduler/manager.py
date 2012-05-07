@@ -59,6 +59,12 @@ class SchedulerManager(manager.Manager):
 
     def __getattr__(self, key):
         """Converts all method calls to use the schedule method"""
+        if key == 'dispatch':
+            # TODO(russellb) This is a temporary hack until this manager gets
+            # converted to a versioned RPC API.  Otherwise, if the rpc code
+            # thinks this manager has a dispatch method, it thinks it has
+            # already been converted.
+            raise AttributeError()
         return functools.partial(self._schedule, key)
 
     def get_host_list(self, context):

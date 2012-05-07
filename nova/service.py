@@ -198,12 +198,12 @@ class Service(object):
                   self.topic)
 
         # Share this same connection for these Consumers
-        self.conn.create_consumer(self.topic, self, fanout=False)
+        self.conn.create_consumer(self.topic, self.manager, fanout=False)
 
         node_topic = '%s.%s' % (self.topic, self.host)
-        self.conn.create_consumer(node_topic, self, fanout=False)
+        self.conn.create_consumer(node_topic, self.manager, fanout=False)
 
-        self.conn.create_consumer(self.topic, self, fanout=True)
+        self.conn.create_consumer(self.topic, self.manager, fanout=True)
 
         # Consume from all consumers in a thread
         self.conn.consume_in_thread()
