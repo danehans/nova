@@ -1017,6 +1017,10 @@ class OnsetFileContentLimitExceeded(QuotaError):
     message = _("Personality file content too long")
 
 
+class KeypairLimitExceeded(QuotaError):
+    message = _("Maximum number of key pairs exceeded")
+
+
 class AggregateError(NovaException):
     message = _("Aggregate %(aggregate_id)s: action '%(action)s' "
                 "caused an error: %(reason)s.")

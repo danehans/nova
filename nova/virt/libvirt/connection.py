@@ -40,8 +40,8 @@ Supports KVM, LXC, QEMU, UML, and XEN.
 
 import errno
 import functools
-import hashlib
 import glob
+import hashlib
 import multiprocessing
 import os
 import shutil
@@ -67,8 +67,8 @@ from nova.openstack.common import cfg
 from nova.openstack.common import excutils
 from nova.openstack.common import importutils
 from nova import utils
-from nova.virt import driver
 from nova.virt.disk import api as disk
+from nova.virt import driver
 from nova.virt.libvirt import config
 from nova.virt.libvirt import firewall
 from nova.virt.libvirt import imagecache
@@ -864,27 +864,6 @@ class LibvirtConnection(driver.ComputeDriver):
     @exception.wrap_exception()
     def poll_rescued_instances(self, timeout):
         pass
-
-    @exception.wrap_exception()
-    def poll_unconfirmed_resizes(self, resize_confirm_window):
-        """Poll for unconfirmed resizes.
-
-        Look for any unconfirmed resizes that are older than
-        `resize_confirm_window` and automatically confirm them.
-        """
-        ctxt = nova_context.get_admin_context()
-        migrations = db.migration_get_all_unconfirmed(ctxt,
-            resize_confirm_window)
-
-        if migrations:
-            LOG.info(_("Found %(migration_count)d unconfirmed migrations "
-                    "older than %(confirm_window)d seconds") %
-                     {'migration_count': len(migrations),
-                      'confirm_window': resize_confirm_window})
-
-        for migration in migrations:
-            LOG.info(_("Automatically confirming migration %d"), migration.id)
-            self.compute_api.confirm_resize(ctxt, migration.instance_uuid)
 
     def _enable_hairpin(self, instance):
         interfaces = self.get_interfaces(instance['name'])
