@@ -68,8 +68,7 @@ class RpcDispatcherTestCase(test.TestCase):
     def _test_dispatch(self, version, expectations):
         v2 = self.API2()
         v3 = self.API3()
-        disp = dispatcher.RpcDispatcher()
-        disp.managers = [v2, v3]
+        disp = dispatcher.RpcDispatcher([(v2, v2.API_VERSION), (v3, v3.API_VERSION)])
 
         disp.dispatch(self.ctxt, version, 'test_method', arg1=1)
 
@@ -102,8 +101,7 @@ class RpcDispatcherTestCase(test.TestCase):
 
     def test_dispatch_no_version_uses_v1(self):
         v1 = self.API1()
-        disp = dispatcher.RpcDispatcher()
-        disp.managers = [v1]
+        disp = dispatcher.RpcDispatcher([(v1, v1.API_VERSION)])
 
         disp.dispatch(self.ctxt, None, 'test_method', arg1=1)
 

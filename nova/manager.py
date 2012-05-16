@@ -56,6 +56,7 @@ This module provides Manager, a base class for managers.
 from nova.db import base
 from nova import flags
 from nova import log as logging
+from nova.rpc import dispatcher as rpc_dispatcher
 from nova.scheduler import api
 from nova import version
 
@@ -135,6 +136,9 @@ class Manager(base.Base):
             host = FLAGS.host
         self.host = host
         super(Manager, self).__init__(db_driver)
+
+    def create_rpc_dispatcher(self):
+        return rpc_dispatcher.RpcDispatcher([(self, '1.0')])
 
     def periodic_tasks(self, context, raise_on_error=False):
         """Tasks to be run at a periodic interval."""

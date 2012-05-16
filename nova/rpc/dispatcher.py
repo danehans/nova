@@ -42,7 +42,6 @@ there can be both versioned and unversioned APIs implemented in the same code
 base.
 """
 
-from nova import rpc
 from nova.rpc import common as rpc_common
 
 
@@ -53,22 +52,21 @@ class RpcDispatcher(object):
     contains a list of underlying managers that have an API_VERSION attribute.
     """
 
-    def __init__(self):
+    def __init__(self, callbacks):
         """Initialize the rpc dispatcher.
 
-        A sub-class should fill in self.managers with one or more actual API
-        implementations that have an API_VERSION attribute that specify which
-        version they implement as a string.
+        :param callbacks: List of tuples of form (proxyobj, api_version)
+                          where proxyobj is an instance of a class with
+                          rpc methods exposed.
         """
-        # Each entry in the managers list should have an API_VERSION attribute
-        self.managers = []
+        self.callbacks = callbacks
         super(RpcDispatcher, self).__init__()
 
     @staticmethod
     def _is_compatible(mversion, version):
         """Determine whether versions are compatible.
 
-        :param mversion: The API version implemented by a manager.
+        :param mversion: The API version implemented by a callback.
         :param version: The API version requested by an incoming message.
         """
         version_parts = version.split('.')
@@ -94,8 +92,8 @@ class RpcDispatcher(object):
         if not version:
             version = '1.0'
 
-        for manager in self.managers:
-            if self._is_compatible(manager.API_VERSION, version):
-                return getattr(manager, method)(ctxt, **kwargs)
+        for (proxyobj, api_version) in self.callbacks:
+            if self._is_compatible(api_version, version):
+                return getattr(proxyobj, method)(ctxt, **kwargs)
 
         raise rpc_common.UnsupportedRpcVersion(version=version)

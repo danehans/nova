@@ -261,13 +261,7 @@ class ProxyCallback(object):
         """
         ctxt.update_store()
         try:
-            if hasattr(self.proxy, 'dispatch'):
-                rval = self.proxy.dispatch(ctxt, version, method, **args)
-            else:
-                node_func = getattr(self.proxy, str(method))
-                node_args = dict((str(k), v) for k, v in args.iteritems())
-                # NOTE(vish): magic is fun!
-                rval = node_func(context=ctxt, **node_args)
+            rval = self.proxy.dispatch(ctxt, version, method, **args)
             # Check if the result was a generator
             if inspect.isgenerator(rval):
                 for x in rval:

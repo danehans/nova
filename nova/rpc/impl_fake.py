@@ -48,19 +48,12 @@ class Consumer(object):
         self.proxy = proxy
 
     def call(self, context, version, method, args, timeout):
-        if not hasattr(self.proxy, 'dispatch'):
-            node_func = getattr(self.proxy, method)
-            node_args = dict((str(k), v) for k, v in args.iteritems())
         done = eventlet.event.Event()
 
         def _inner():
             ctxt = RpcContext.from_dict(context.to_dict())
             try:
-                if hasattr(self.proxy, 'dispatch'):
-                    rval = self.proxy.dispatch(context, version, method,
-                                               **args)
-                else:
-                    rval = node_func(context=ctxt, **node_args)
+                rval = self.proxy.dispatch(context, version, method, **args)
                 res = []
                 # Caller might have called ctxt.reply() manually
                 for (reply, failure) in ctxt._response:
