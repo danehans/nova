@@ -1375,7 +1375,8 @@ class CellCommands(object):
     @arg('--woffset', dest='woffset', metavar='<float>')
     @arg('--wscale', dest='wscale', metavar='<float>')
     def create(self, name, cell_type='child', username=None, password=None,
-               hostname=None, port=None, virtual_host=None):
+               hostname=None, port=None, virtual_host=None,
+               woffset=None, wscale=None):
 
         if cell_type not in ['parent', 'child']:
             print "Error: cell type must be 'parent' or 'child'"
@@ -1388,7 +1389,9 @@ class CellCommands(object):
                   'password': password,
                   'rpc_host': hostname,
                   'rpc_port': int(port),
-                  'rpc_virtual_host': virtual_host}
+                  'rpc_virtual_host': virtual_host,
+                  'weight_offset': float(woffset),
+                  'weight_scale': float(wscale)}
         ctxt = context.get_admin_context()
         db.cell_create(ctxt, values)
 
